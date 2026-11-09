@@ -19,7 +19,7 @@ def test_query_stream_emits_versioned_row_chunks_without_changing_query_contract
     with client.stream(
         "POST",
         "/api/v1/query/stream",
-        json={"question": "流式查询", "sql": "SELECT region FROM sales ORDER BY id", "max_rows": 3},
+            json={"question": "流式查询", "sql": "SELECT region FROM sales ORDER BY id", "max_rows": 2},
     ) as response:
         events = _events(response)
 
@@ -27,13 +27,13 @@ def test_query_stream_emits_versioned_row_chunks_without_changing_query_contract
     assert response.headers["content-type"].startswith("application/x-ndjson")
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["x-content-type-options"] == "nosniff"
-    assert [item["event"] for item in events] == ["started", "result", "rows", "rows", "rows", "completed"]
+    assert [item["event"] for item in events] == ["started", "result", "rows", "rows", "completed"]
     assert all(item["version"] == "1" for item in events)
     assert "rows" not in events[1]["data"]
-    assert events[1]["data"]["row_count"] == 3
+    assert events[1]["data"]["row_count"] == 2
     streamed_rows = [row for event in events if event["event"] == "rows" for row in event["data"]["rows"]]
-    assert len(streamed_rows) == 3
-    assert events[-1]["data"] == {"row_count": 3, "chunk_count": 3, "truncated": True}
+    assert len(streamed_rows) == 2
+    assert events[-1]["data"] == {"row_count": 2, "chunk_count": 2, "truncated": True}
 
 
 def test_query_stream_returns_terminal_error_event_without_rows():
