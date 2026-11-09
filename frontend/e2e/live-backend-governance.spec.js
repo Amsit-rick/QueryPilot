@@ -3,10 +3,15 @@ import { test, expect } from '@playwright/test'
 const API_BASE = process.env.E2E_API_BASE_URL || 'http://127.0.0.1:8000'
 const LOGIN_USER = process.env.TEST_USERNAME || 'admin'
 const LOGIN_PASSWORD = process.env.TEST_PASSWORD || ''
+const LIVE_BACKEND_ENABLED = process.env.RUN_LIVE_BACKEND_E2E === '1' && Boolean(LOGIN_PASSWORD)
 const USER_PREFIX = 'e2e_viewer_'
 const MCP_PREFIX = 'E2E MCP '
 
 test.describe.configure({ mode: 'serial', timeout: 60_000 })
+test.skip(
+  !LIVE_BACKEND_ENABLED,
+  '真实治理 E2E 需要 RUN_LIVE_BACKEND_E2E=1 和 TEST_PASSWORD，并会修改目标环境数据。',
+)
 
 function runId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`

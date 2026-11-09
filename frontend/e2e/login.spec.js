@@ -24,12 +24,14 @@ async function mockAuthenticatedApp(page, tasks = []) {
     if (path.endsWith('/auth/me')) return route.fulfill({json: {username: 'admin', roles: ['admin'], tenant_id: 'default', is_active: true}})
     if (path.endsWith('/data-sources')) return route.fulfill({json: [{id: 'sqlite-demo', name: 'SQLite 演示库', backend: 'sqlite', readonly: true}]})
     if (path.endsWith('/tasks')) return route.fulfill({json: tasks})
+    if (path.endsWith('/query')) return route.fulfill({json: {answer: '查询完成', columns: ['region', 'amount'], rows: [['华东', 100]], row_count: 1, sql: 'SELECT region, amount FROM sales LIMIT 1', trace_id: 'trace-login-e2e'}})
     if (path.endsWith('/auth/logout')) return route.fulfill({json: {ok: true}})
     return route.fulfill({status: 404, json: {detail: 'not mocked'}})
   })
 }
 
 test('登录成功进入工作台，退出回到登录页', async ({ page }) => {
+  await mockAuthenticatedApp(page)
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Query Pilot' })).toBeVisible()
 
@@ -47,6 +49,12 @@ test('登录成功进入工作台，退出回到登录页', async ({ page }) => 
 })
 
 test('错误密码展示错误提示', async ({ page }) => {
+  await page.route('**/api/v1/**', async route => {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith('/auth/login')) return route.fulfill({status: 401, json: {detail: '用户名或密码错误'}})
+    if (path.endsWith('/auth/refresh')) return route.fulfill({status: 401, json: {detail: 'not logged in'}})
+    return route.fulfill({status: 404, json: {detail: 'not mocked'}})
+  })
   await page.goto('/')
   await page.getByPlaceholder('用户名').fill('nobody')
   await page.getByPlaceholder('密码').fill('wrong-password-123')
@@ -56,6 +64,7 @@ test('错误密码展示错误提示', async ({ page }) => {
 })
 
 test('登录后可执行查询并显示结果区域', async ({ page }) => {
+  await mockAuthenticatedApp(page)
   await page.goto('/')
   await page.getByPlaceholder('用户名').fill(LOGIN_USER)
   await page.getByPlaceholder('密码').fill(LOGIN_PASSWORD)
