@@ -110,6 +110,8 @@ def test_drill_record_verification_rejects_evidence_symlink_escape(tmp_path):
         pytest.skip(f"symlinks unavailable: {exc}")
 
     record = {
+        "format": "query-pilot-operations-drill",
+        "version": 1,
         **_facts(),
         "evidence": [{"file": "restore.log", "size_bytes": outside.stat().st_size, "sha256": "0" * 64}],
     }
