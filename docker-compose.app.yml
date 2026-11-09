@@ -1,0 +1,105 @@
+services:
+  api:
+    build: .
+    env_file: .env
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: query_agent
+      MYSQL_USER: query_app
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD must be set}
+      MYSQL_QUERY_USER: query_readonly
+      MYSQL_QUERY_PASSWORD: ${MYSQL_QUERY_PASSWORD:?MYSQL_QUERY_PASSWORD must be set}
+      EXPORT_EXECUTION_MODE: redis
+      REDIS_URL: redis://redis:6379/0
+      AGENT_RUNTIME: langgraph
+      AGENT_CHECKPOINT_ENABLED: "true"
+      AUDIT_STDOUT_ENABLED: "${AUDIT_STDOUT_ENABLED:-true}"
+    volumes:
+      - ./data/exports:/app/data/exports
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    init: true
+    pids_limit: 256
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready')"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  export-worker:
+    build: .
+    env_file: .env
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: query_agent
+      MYSQL_USER: query_app
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD must be set}
+      MYSQL_QUERY_USER: query_readonly
+      MYSQL_QUERY_PASSWORD: ${MYSQL_QUERY_PASSWORD:?MYSQL_QUERY_PASSWORD must be set}
+      EXPORT_EXECUTION_MODE: redis
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./data/exports:/app/data/exports
+    command: ["python", "scripts/export_worker.py"]
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    init: true
+    pids_limit: 128
+    mem_limit: 512m
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  mysql:
+    image: mysql:8.4@sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb
+    environment:
+      MYSQL_DATABASE: query_agent
+      MYSQL_USER: query_app
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD must be set}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}
+      MYSQL_READONLY_USER: query_readonly
+      MYSQL_READONLY_PASSWORD: ${MYSQL_QUERY_PASSWORD:?MYSQL_QUERY_PASSWORD must be set}
+      MYSQL_READONLY_TABLES: sales,customers,enterprise_customers,products,enterprise_orders,order_items,inventory,suppliers,employees,payments
+    volumes:
+      - mysql_app_data:/var/lib/mysql
+      - ./migrations/mysql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    expose:
+      - "3306"
+  redis:
+    image: redis:7-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_app_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    expose:
+      - "6379"
+volumes:
+  mysql_app_data:
+  redis_app_data:

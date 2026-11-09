@@ -1,0 +1,17 @@
+{
+  "skills": [
+    {
+      "id": "sales-analysis",
+      "version": "1.1.0",
+      "name": "销售分析",
+      "description": "覆盖销售额与毛利分析的只读查询规划。",
+      "intents": ["sales_query", "gross_margin_query"],
+      "trigger_terms": ["销售", "销售额", "营收", "成交", "订单金额", "客单价", "毛利"],
+      "allowed_tools": ["schema.list", "query.plan", "result.get"],
+      "workflow_steps": ["确认毛利指标口径", "定位授权字段与关联关系", "生成受控只读查询计划"],
+      "allowed_roles": ["viewer", "analyst", "admin"],
+      "read_only": true,
+      "priority": 70
+    }
+  ]
+}

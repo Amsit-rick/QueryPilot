@@ -1,0 +1,38 @@
+{
+  "version": "2026-09-26-v1",
+  "cases": [
+    {
+      "id": "one_to_many_preaggregate",
+      "description": "订单明细先按订单聚合再连接客户，避免金额重复",
+      "expected_sql": "SELECT o.id, c.name, SUM(i.amount) AS total_amount FROM orders o JOIN customers c ON c.id=o.customer_id JOIN order_items i ON i.order_id=o.id GROUP BY o.id, c.name ORDER BY o.id",
+      "expected_rows": [[1, "甲公司", 30.0], [2, "乙公司", 5.0]],
+      "expected_relationships": [{"from_table": "orders", "from_columns": ["customer_id"], "to_table": "customers", "to_columns": ["id"]}, {"from_table": "order_items", "from_columns": ["order_id"], "to_table": "orders", "to_columns": ["id"]}],
+      "requires_confirmation": false
+    },
+    {
+      "id": "orphan_foreign_key_excluded",
+      "description": "孤儿外键使用 INNER JOIN 时不应出现在结果",
+      "expected_sql": "SELECT c.name, COUNT(o.id) AS order_count FROM customers c LEFT JOIN orders o ON o.customer_id=c.id GROUP BY c.id, c.name ORDER BY c.id",
+      "expected_rows": [["甲公司", 1], ["乙公司", 1], ["丙公司", 0]],
+      "expected_relationships": [{"from_table": "orders", "from_columns": ["customer_id"], "to_table": "customers", "to_columns": ["id"]}],
+      "requires_confirmation": true
+    },
+    {
+      "id": "null_safe_dimension",
+      "description": "维度缺失时保留明细并显式标记未知",
+      "expected_sql": "SELECT COALESCE(c.name, '未知客户') AS customer_name, SUM(i.amount) AS total_amount FROM order_items i LEFT JOIN orders o ON o.id=i.order_id LEFT JOIN customers c ON c.id=o.customer_id GROUP BY COALESCE(c.name, '未知客户') ORDER BY customer_name",
+      "expected_rows": [["乙公司", 5.0], ["未知客户", 7.0], ["甲公司", 30.0]],
+      "expected_relationships": [{"from_table": "order_items", "from_columns": ["order_id"], "to_table": "orders", "to_columns": ["id"]}, {"from_table": "orders", "from_columns": ["customer_id"], "to_table": "customers", "to_columns": ["id"]}],
+      "requires_confirmation": true
+    },
+    {
+      "id": "two_many_sides_preaggregate",
+      "description": "订单同时连接明细和收款时，两个多侧必须先按订单聚合",
+      "expected_sql": "SELECT o.id, SUM(i.total_amount) AS item_amount, SUM(p.total_paid) AS paid_amount FROM orders o LEFT JOIN (SELECT order_id, SUM(amount) AS total_amount FROM order_items GROUP BY order_id) i ON i.order_id=o.id LEFT JOIN (SELECT order_id, SUM(amount) AS total_paid FROM payments GROUP BY order_id) p ON p.order_id=o.id WHERE o.id IN (1,2) GROUP BY o.id ORDER BY o.id",
+      "expected_rows": [[1, 30.0, 30.0], [2, 5.0, 5.0]],
+      "naive_sql": "SELECT o.id, SUM(i.amount) AS item_amount, SUM(p.amount) AS paid_amount FROM orders o JOIN order_items i ON i.order_id=o.id JOIN payments p ON p.order_id=o.id WHERE o.id IN (1,2) GROUP BY o.id ORDER BY o.id",
+      "expected_relationships": [{"from_table": "order_items", "from_columns": ["order_id"], "to_table": "orders", "to_columns": ["id"]}, {"from_table": "payments", "from_columns": ["order_id"], "to_table": "orders", "to_columns": ["id"]}],
+      "requires_confirmation": true
+    }
+  ]
+}

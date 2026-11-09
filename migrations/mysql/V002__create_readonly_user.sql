@@ -1,0 +1,4 @@
+-- Reserved migration version. Query roles are provisioned outside application
+-- migrations because their credentials must come from a secret manager.
+-- Docker development uses ZZ99-create-readonly-user.sh; production DBAs should
+-- adapt migrations/mysql/dba/create_readonly_user.sql.

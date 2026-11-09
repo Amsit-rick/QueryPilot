@@ -1,0 +1,50 @@
+{
+  "version": "2026-09-03-v1",
+  "datasources": [
+    {
+      "id": "sqlite-demo",
+      "name": "SQLite 演示库",
+      "backend": "sqlite",
+      "path": "./data/demo.db",
+      "readonly": true,
+      "roles": [
+        "admin",
+        "analyst",
+        "viewer"
+      ]
+    },
+    {
+      "id": "mysql-main",
+      "name": "MySQL 生产库",
+      "backend": "mysql",
+      "readonly": true,
+      "allowed_tables": [
+        "sales",
+        "customers",
+        "enterprise_customers",
+        "products",
+        "enterprise_orders",
+        "order_items",
+        "inventory",
+        "suppliers",
+        "employees",
+        "payments"
+      ],
+      "value_columns": [
+        "enterprise_orders.status",
+        "enterprise_orders.channel",
+        "enterprise_customers.industry",
+        "enterprise_customers.level",
+        "payments.status",
+        "payments.method",
+        "products.category",
+        "inventory.warehouse",
+        "employees.department"
+      ],
+      "roles": [
+        "admin",
+        "analyst"
+      ]
+    }
+  ]
+}

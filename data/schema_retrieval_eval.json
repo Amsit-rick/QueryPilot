@@ -1,0 +1,38 @@
+{
+  "format": "query-pilot-schema-retrieval-eval-dataset",
+  "dataset_version": "schema-retrieval-eval-v1",
+  "synthetic": true,
+  "external_validation": "not_run",
+  "cases": [
+    {
+      "id": "customer_products_three_hops",
+      "question": "统计客户购买过的商品和数量",
+      "semantic_tables": ["customers", "products"],
+      "semantic_columns": ["customers.name", "products.name", "order_items.quantity"],
+      "expected_tables": ["customers", "orders", "order_items", "products"],
+      "expected_columns": ["customers.name", "products.name", "order_items.quantity"],
+      "expected_path": ["customers", "orders", "order_items", "products"]
+    },
+    {
+      "id": "pending_payment_region",
+      "question": "按区域统计待支付金额",
+      "semantic_tables": ["payments", "regions"],
+      "semantic_columns": ["payments.amount", "payments.status", "regions.name"],
+      "expected_tables": ["payments", "orders", "customers", "regions"],
+      "expected_columns": ["payments.amount", "payments.status", "regions.name"],
+      "expected_path": ["payments", "orders", "customers", "regions"]
+    },
+    {
+      "id": "supplier_products_two_hops",
+      "question": "查询供应商提供的商品",
+      "semantic_tables": ["suppliers", "products"],
+      "semantic_columns": ["suppliers.name", "products.name"],
+      "expected_tables": ["suppliers", "product_suppliers", "products"],
+      "expected_columns": ["suppliers.name", "products.name"],
+      "expected_path": ["suppliers", "product_suppliers", "products"]
+    }
+  ],
+  "limitations": [
+    "Synthetic 1,500-table metadata is a capacity and regression fixture, not enterprise accuracy evidence."
+  ]
+}

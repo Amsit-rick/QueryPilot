@@ -1,0 +1,211 @@
+{
+  "dataset_version": "business-gold-mysql-holdout-v1",
+  "description": "30 held-out business questions over the enterprise demo schema. They were written after the value-grounding work and did not participate in its design, so they measure generalisation rather than tuning. Data is synthetic enterprise demo data.",
+  "synthetic_data": true,
+  "database": "mysql-enterprise-demo",
+  "schema_tables": [
+    "enterprise_orders",
+    "enterprise_customers",
+    "order_items",
+    "payments",
+    "inventory",
+    "products",
+    "suppliers",
+    "employees"
+  ],
+  "value_columns": [
+    "enterprise_orders.status",
+    "enterprise_orders.channel",
+    "enterprise_customers.industry",
+    "enterprise_customers.level",
+    "payments.status",
+    "payments.method",
+    "products.category",
+    "inventory.warehouse",
+    "employees.department"
+  ],
+  "cases": [
+    {
+      "id": "H-001",
+      "category": "compound_filter",
+      "question": "华东区域已完成的订单有多少单",
+      "gold_sql": "SELECT COUNT(*) AS order_count FROM enterprise_orders WHERE region = '华东' AND status = 'completed'"
+    },
+    {
+      "id": "H-002",
+      "category": "three_table_join",
+      "question": "金融行业客户的订单明细金额合计是多少",
+      "gold_sql": "SELECT ROUND(SUM(oi.line_amount), 2) AS total FROM order_items oi JOIN enterprise_orders o ON oi.order_id = o.id JOIN enterprise_customers c ON o.customer_id = c.id WHERE c.industry = '金融'"
+    },
+    {
+      "id": "H-003",
+      "category": "two_dimension_group",
+      "question": "各区域各渠道分别有多少订单",
+      "gold_sql": "SELECT region, channel, COUNT(*) AS order_count FROM enterprise_orders GROUP BY region, channel"
+    },
+    {
+      "id": "H-004",
+      "category": "share_ratio",
+      "question": "各订单状态占全部订单的比例是多少（用 0 到 1 的小数表示）",
+      "gold_sql": "SELECT status, ROUND(COUNT(*) / (SELECT COUNT(*) FROM enterprise_orders), 4) AS share FROM enterprise_orders GROUP BY status ORDER BY status ASC"
+    },
+    {
+      "id": "H-005",
+      "category": "share_ratio",
+      "question": "已完成订单占全部订单的比例是多少（用 0 到 1 的小数表示）",
+      "gold_sql": "SELECT ROUND(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) / COUNT(*), 4) AS completed_share FROM enterprise_orders"
+    },
+    {
+      "id": "H-006",
+      "category": "case_bucket",
+      "question": "按订单金额分三档（5 万以下、5 万到 15 万、15 万以上）统计订单数，三档分别标记为 low、mid、high",
+      "gold_sql": "SELECT CASE WHEN total_amount < 50000 THEN 'low' WHEN total_amount < 150000 THEN 'mid' ELSE 'high' END AS bucket, COUNT(*) AS order_count FROM enterprise_orders GROUP BY bucket ORDER BY bucket ASC"
+    },
+    {
+      "id": "H-007",
+      "category": "date_range",
+      "question": "2026 年的订单一共有多少单",
+      "gold_sql": "SELECT COUNT(*) AS order_count FROM enterprise_orders WHERE order_date >= '2026-01-01' AND order_date < '2027-01-01'"
+    },
+    {
+      "id": "H-008",
+      "category": "null_handling",
+      "question": "有多少订单没有关联客户",
+      "gold_sql": "SELECT COUNT(*) AS order_count FROM enterprise_orders WHERE customer_id IS NULL"
+    },
+    {
+      "id": "H-009",
+      "category": "left_join_null",
+      "question": "有多少客户一个订单都没有",
+      "gold_sql": "SELECT COUNT(*) AS customer_count FROM enterprise_customers c LEFT JOIN enterprise_orders o ON o.customer_id = c.id WHERE o.id IS NULL"
+    },
+    {
+      "id": "H-010",
+      "category": "distinct_count",
+      "question": "下过订单的客户一共有多少个",
+      "gold_sql": "SELECT COUNT(DISTINCT customer_id) AS customer_count FROM enterprise_orders"
+    },
+    {
+      "id": "H-011",
+      "category": "average",
+      "question": "订单明细的平均折扣率是多少",
+      "gold_sql": "SELECT ROUND(AVG(discount), 4) AS avg_discount FROM order_items"
+    },
+    {
+      "id": "H-012",
+      "category": "case_bucket",
+      "question": "按售价分三档（500 元以下、500 到 5000 元、5000 元以上）统计商品数，三档分别标记为 low、mid、high",
+      "gold_sql": "SELECT CASE WHEN list_price < 500 THEN 'low' WHEN list_price < 5000 THEN 'mid' ELSE 'high' END AS bucket, COUNT(*) AS product_count FROM products GROUP BY bucket ORDER BY bucket ASC"
+    },
+    {
+      "id": "H-013",
+      "category": "date_part",
+      "question": "各入职年份分别有多少员工",
+      "gold_sql": "SELECT YEAR(hire_date) AS hire_year, COUNT(*) AS employee_count FROM employees GROUP BY YEAR(hire_date) ORDER BY hire_year ASC"
+    },
+    {
+      "id": "H-014",
+      "category": "case_bucket",
+      "question": "按评分区间（3 分以下、3 到 4 分、4 分以上）统计供应商数，三档分别标记为 low、mid、high",
+      "gold_sql": "SELECT CASE WHEN rating < 3 THEN 'low' WHEN rating < 4 THEN 'mid' ELSE 'high' END AS bucket, COUNT(*) AS supplier_count FROM suppliers GROUP BY bucket ORDER BY bucket ASC"
+    },
+    {
+      "id": "H-015",
+      "category": "cross_tab",
+      "question": "各支付方式在各支付状态下分别有多少笔",
+      "gold_sql": "SELECT method, status, COUNT(*) AS payment_count FROM payments GROUP BY method, status"
+    },
+    {
+      "id": "H-016",
+      "category": "monthly_ratio",
+      "question": "2025 年每个月的退款笔数占当月支付笔数的比例是多少（月份用 1 到 12 的整数表示）",
+      "gold_sql": "SELECT MONTH(paid_date) AS month, ROUND(SUM(CASE WHEN status = 'refunded' THEN 1 ELSE 0 END) / COUNT(*), 4) AS refund_ratio FROM payments WHERE paid_date >= '2025-01-01' AND paid_date < '2026-01-01' GROUP BY MONTH(paid_date) ORDER BY month ASC"
+    },
+    {
+      "id": "H-017",
+      "category": "inventory_totals",
+      "question": "各仓库的可用库存合计和补货点合计分别是多少",
+      "gold_sql": "SELECT warehouse, SUM(available_qty) AS available_total, SUM(reorder_point) AS reorder_total FROM inventory GROUP BY warehouse ORDER BY warehouse ASC"
+    },
+    {
+      "id": "H-018",
+      "category": "inventory_gap",
+      "question": "按缺口从大到小取前 3 个仓库，缺口相同时按仓库名升序",
+      "gold_sql": "SELECT warehouse, SUM(reorder_point - available_qty) AS gap FROM inventory WHERE available_qty < reorder_point GROUP BY warehouse ORDER BY gap DESC, warehouse ASC LIMIT 3",
+      "ordered": true
+    },
+    {
+      "id": "H-019",
+      "category": "string_match",
+      "question": "名称里包含“科技”的供应商有多少家",
+      "gold_sql": "SELECT COUNT(*) AS supplier_count FROM suppliers WHERE name LIKE '%科技%'"
+    },
+    {
+      "id": "H-020",
+      "category": "date_range",
+      "question": "2025 年之前注册的客户有多少个",
+      "gold_sql": "SELECT COUNT(*) AS customer_count FROM enterprise_customers WHERE signup_date < '2025-01-01'"
+    },
+    {
+      "id": "H-021",
+      "category": "string_concat",
+      "question": "按 id 升序取前 5 个客户，把客户编码和名称用短横线拼接展示",
+      "gold_sql": "SELECT CONCAT(customer_code, '-', name) AS label FROM enterprise_customers ORDER BY id ASC LIMIT 5",
+      "ordered": true
+    },
+    {
+      "id": "H-022",
+      "category": "string_function",
+      "question": "客户行业名称去重后统一转成大写",
+      "gold_sql": "SELECT DISTINCT UPPER(industry) AS industry_upper FROM enterprise_customers ORDER BY industry_upper ASC"
+    },
+    {
+      "id": "H-023",
+      "category": "range_filter",
+      "question": "订单金额在 5 万到 15 万之间的订单有多少单",
+      "gold_sql": "SELECT COUNT(*) AS order_count FROM enterprise_orders WHERE total_amount BETWEEN 50000 AND 150000"
+    },
+    {
+      "id": "H-024",
+      "category": "three_table_join",
+      "question": "各行业客户的订单明细金额分别是多少",
+      "gold_sql": "SELECT c.industry, ROUND(SUM(oi.line_amount), 2) AS total FROM order_items oi JOIN enterprise_orders o ON oi.order_id = o.id JOIN enterprise_customers c ON o.customer_id = c.id GROUP BY c.industry ORDER BY c.industry ASC"
+    },
+    {
+      "id": "H-025",
+      "category": "share_ratio",
+      "question": "各部门月度人力成本占全公司人力成本的比例是多少（用 0 到 1 的小数表示）",
+      "gold_sql": "SELECT department, ROUND(SUM(monthly_cost) / (SELECT SUM(monthly_cost) FROM employees), 4) AS cost_share FROM employees GROUP BY department ORDER BY department ASC"
+    },
+    {
+      "id": "H-026",
+      "category": "cross_tab",
+      "question": "已完成订单的支付记录里，各支付状态分别有多少笔",
+      "gold_sql": "SELECT p.status, COUNT(*) AS payment_count FROM payments p JOIN enterprise_orders o ON p.order_id = o.id WHERE o.status = 'completed' GROUP BY p.status ORDER BY p.status ASC"
+    },
+    {
+      "id": "H-027",
+      "category": "margin",
+      "question": "各商品类别的平均毛利（售价减成本）是多少",
+      "gold_sql": "SELECT category, ROUND(AVG(list_price - cost), 2) AS avg_margin FROM products GROUP BY category ORDER BY category ASC"
+    },
+    {
+      "id": "H-028",
+      "category": "inventory_ratio",
+      "question": "库存低于补货点的商品仓库组合占比是多少（用 0 到 1 的小数表示）",
+      "gold_sql": "SELECT ROUND(SUM(CASE WHEN available_qty < reorder_point THEN 1 ELSE 0 END) / COUNT(*), 4) AS alert_share FROM inventory"
+    },
+    {
+      "id": "H-029",
+      "category": "customer_level",
+      "question": "各客户等级带来的订单总额是多少",
+      "gold_sql": "SELECT c.level, ROUND(SUM(o.total_amount), 2) AS total FROM enterprise_customers c JOIN enterprise_orders o ON o.customer_id = c.id GROUP BY c.level ORDER BY c.level ASC"
+    },
+    {
+      "id": "H-030",
+      "category": "channel_aov",
+      "question": "各渠道已完成订单的客单价是多少",
+      "gold_sql": "SELECT channel, ROUND(SUM(total_amount) / COUNT(*), 2) AS avg_order_value FROM enterprise_orders WHERE status = 'completed' GROUP BY channel ORDER BY channel ASC"
+    }
+  ]
+}

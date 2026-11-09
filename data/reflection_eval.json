@@ -1,0 +1,132 @@
+{
+  "dataset_version": "reflection-eval-v1",
+  "synthetic": true,
+  "external_validation": "not_run",
+  "cases": [
+    {
+      "id": "accepted_aggregate",
+      "kind": "result",
+      "question": "按区域统计销售额",
+      "sql": "SELECT region, SUM(amount) AS total_amount FROM sales GROUP BY region",
+      "columns": ["region", "total_amount"],
+      "rows": [["east", 120], ["south", 80]],
+      "authorized_schema": {"sales": ["region", "amount"]},
+      "expected_dimensions": ["region"],
+      "expected_metrics": ["total_amount"],
+      "expected_failure_type": "none",
+      "expected_action": "accept"
+    },
+    {
+      "id": "top_n_missing_order",
+      "kind": "result",
+      "question": "销售额最高的前 10 个区域",
+      "sql": "SELECT region, SUM(amount) AS total_amount FROM sales GROUP BY region",
+      "columns": ["region", "total_amount"],
+      "rows": [["east", 120]],
+      "authorized_schema": {"sales": ["region", "amount"]},
+      "expected_dimensions": ["region"],
+      "expected_metrics": ["total_amount"],
+      "expected_failure_type": "aggregation_grain",
+      "expected_action": "regenerate_sql"
+    },
+    {
+      "id": "empty_result",
+      "kind": "result",
+      "question": "按区域统计销售额",
+      "sql": "SELECT region, SUM(amount) AS total_amount FROM sales GROUP BY region",
+      "columns": ["region", "total_amount"],
+      "rows": [],
+      "authorized_schema": {"sales": ["region", "amount"]},
+      "expected_dimensions": ["region"],
+      "expected_metrics": ["total_amount"],
+      "expected_failure_type": "empty_result",
+      "expected_action": "regenerate_sql"
+    },
+    {
+      "id": "aggregate_fanout",
+      "kind": "result",
+      "question": "统计客户额度",
+      "sql": "SELECT c.id, SUM(c.credit_limit) AS total_credit FROM customers c JOIN orders o ON o.customer_id=c.id GROUP BY c.id",
+      "columns": ["id", "total_credit"],
+      "rows": [[1, 2000]],
+      "authorized_schema": {"customers": ["id", "credit_limit"], "orders": ["id", "customer_id"]},
+      "relationships": [{"from_table": "orders", "from_columns": ["customer_id"], "to_table": "customers", "to_columns": ["id"], "cardinality": "many_to_one", "confidence": 1.0}],
+      "expected_dimensions": ["id"],
+      "expected_metrics": ["total_credit"],
+      "expected_failure_type": "aggregation_grain",
+      "expected_action": "regenerate_sql"
+    },
+    {
+      "id": "approved_current_metric",
+      "kind": "result",
+      "question": "统计当前有效订单销售额",
+      "sql": "SELECT region, SUM(amount) AS total_amount FROM sales GROUP BY region",
+      "columns": ["region", "total_amount"],
+      "rows": [["east", 120]],
+      "authorized_schema": {"sales": ["region", "amount", "status", "deleted_at"]},
+      "schema_details": {"tables": {"sales": {"columns": ["region", "amount", "status", "deleted_at"]}}},
+      "expected_dimensions": ["region"],
+      "expected_metrics": ["total_amount"],
+      "critic_result": {"accepted": true, "failure_type": "none", "reason_codes": ["APPROVED_METRIC_SCOPE"], "evidence": ["approved metric definition already applies active scope"], "action": "accept", "retryable": false, "confidence": 0.95},
+      "expected_failure_type": "none",
+      "expected_action": "accept"
+    },
+    {
+      "id": "syntax_repair",
+      "kind": "failure",
+      "stage": "validate",
+      "error_code": "E_QUERY_INVALID",
+      "retryable": true,
+      "expected_failure_type": "syntax",
+      "expected_action": "regenerate_sql"
+    },
+    {
+      "id": "schema_expansion",
+      "kind": "failure",
+      "stage": "validate",
+      "error_code": "E_HALLUCINATED_FIELD",
+      "retryable": true,
+      "expected_failure_type": "schema",
+      "expected_action": "retrieve_more_schema"
+    },
+    {
+      "id": "security_hard_gate",
+      "kind": "failure",
+      "stage": "validate",
+      "error_code": "E_READONLY_VIOLATION",
+      "retryable": true,
+      "hard_gate": true,
+      "expected_failure_type": "security",
+      "expected_action": "fail"
+    },
+    {
+      "id": "permission_hard_gate",
+      "kind": "failure",
+      "stage": "validate",
+      "error_code": "E_PERMISSION_DENIED",
+      "retryable": true,
+      "hard_gate": true,
+      "expected_failure_type": "permission",
+      "expected_action": "fail"
+    },
+    {
+      "id": "transient_retry",
+      "kind": "failure",
+      "stage": "execute",
+      "error_code": "E_TIMEOUT",
+      "retryable": true,
+      "expected_failure_type": "execution_transient",
+      "expected_action": "retry_execution"
+    },
+    {
+      "id": "cost_requires_approval",
+      "kind": "failure",
+      "stage": "pre_execute",
+      "error_code": "E_QUERY_COST_LIMIT",
+      "retryable": false,
+      "hard_gate": true,
+      "expected_failure_type": "cost",
+      "expected_action": "require_approval"
+    }
+  ]
+}

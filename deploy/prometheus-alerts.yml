@@ -1,0 +1,161 @@
+groups:
+  - name: query-pilot-service
+    rules:
+      - alert: QueryPilotTargetDown
+        expr: up{job="query-pilot-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          threshold_status: needs_enterprise_confirmation
+        annotations:
+          summary: Query Pilot metrics target is unavailable
+          runbook_url: docs/operations/alert-runbook.md#querypilottargetdown
+
+      - alert: QueryPilotHighErrorRatio
+        expr: |
+          rate(query_pilot_errors_total[5m])
+          / clamp_min(rate(query_pilot_requests_total[5m]), 0.001) > 0.05
+          and rate(query_pilot_requests_total[5m]) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          threshold_status: needs_enterprise_confirmation
+        annotations:
+          summary: Query Pilot error ratio is above the provisional threshold
+          runbook_url: docs/operations/alert-runbook.md#querypilothigherrorratio
+
+      - alert: QueryPilotHighAverageLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(query_pilot_request_duration_seconds_bucket[5m]))
+          ) > 3
+        for: 10m
+        labels:
+          severity: warning
+          threshold_status: needs_enterprise_confirmation
+        annotations:
+          summary: Query Pilot average query latency is above the provisional threshold
+          runbook_url: docs/operations/alert-runbook.md#querypilothighaveragelatency
+
+      - alert: QueryPilotAuditWriteFailure
+        expr: increase(query_pilot_audit_write_failures_total[10m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          threshold_status: needs_enterprise_confirmation
+        annotations:
+          summary: Query Pilot failed to persist one or more audit records
+          runbook_url: docs/operations/alert-runbook.md#querypilotauditwritefailure
+
+      - alert: QueryPilotModelCostSpike
+        expr: increase(query_pilot_cost_usd_total[1h]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          threshold_status: needs_enterprise_confirmation
+        annotations:
+          summary: Query Pilot estimated model cost increased above the provisional threshold
+          runbook_url: docs/operations/alert-runbook.md#querypilotmodelcostspike
+
+      - alert: QueryPilotLargeResultSpike
+        expr: increase(query_pilot_large_result_queries_total[15m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          threshold_status: needs_enterprise_confirmation
+        annotations:
+          summary: Query Pilot large-result queries exceed the provisional threshold
+          runbook_url: docs/operations/alert-runbook.md#querypilotlargeresultspike
+
+      - alert: QueryPilotFrequentTruncation
+        expr: increase(query_pilot_truncated_queries_total[15m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          threshold_status: needs_enterprise_confirmation
+        annotations:
+          summary: Query Pilot query results are frequently truncated
+          runbook_url: docs/operations/alert-runbook.md#querypilotfrequenttruncation
+
+      - alert: QueryPilotReflectionSafetyRollback
+        expr: increase(query_pilot_reflection_rollbacks_total[10m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          threshold_status: needs_enterprise_confirmation
+        annotations:
+          summary: Reflection rollout was automatically rolled back
+          runbook_url: docs/operations/alert-runbook.md#querypilotreflectionsafetyrollback
+
+      - alert: QueryPilotReflectionRepairFailureSpike
+        expr: |
+          rate(query_pilot_reflection_repair_failure_total[10m])
+          / clamp_min(rate(query_pilot_reflection_decisions_total[10m]), 0.001) > 0.20
+          and rate(query_pilot_reflection_decisions_total[10m]) > 0.01
+        for: 10m
+        labels:
+          severity: warning
+          threshold_status: needs_enterprise_confirmation
+        annotations:
+          summary: Reflection repair failures exceed the provisional ratio
+          runbook_url: docs/operations/alert-runbook.md#querypilotreflectionrepairfailurespike
+
+      - alert: QueryPilotCheckpointRecoveryFailures
+        expr: increase(query_pilot_checkpoint_recovery_failures_total[10m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          threshold_status: needs_enterprise_confirmation
+        annotations:
+          summary: Agent checkpoint recovery or fencing validation failed
+          runbook_url: docs/operations/alert-runbook.md#querypilotcheckpointrecoveryfailures
+
+      - alert: QueryPilotReflectionLatencyHigh
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (
+              rate(query_pilot_agent_stage_duration_seconds_bucket{stage="reflect"}[10m])
+            )
+          ) > 3
+        for: 10m
+        labels:
+          severity: warning
+          threshold_status: needs_enterprise_confirmation
+        annotations:
+          summary: Reflection p95 latency exceeds the provisional threshold
+          runbook_url: docs/operations/alert-runbook.md#querypilotreflectionlatencyhigh
+
+      - alert: QueryPilotCriticFailures
+        expr: increase(query_pilot_critic_timeouts_total[10m]) + increase(query_pilot_critic_invalid_responses_total[10m]) > 3
+        for: 5m
+        labels:
+          severity: warning
+          threshold_status: needs_enterprise_confirmation
+        annotations:
+          summary: Semantic critic timeouts or invalid responses are elevated
+          runbook_url: docs/operations/alert-runbook.md#querypilotcriticfailures
+
+      - alert: QueryPilotBudgetExhaustion
+        expr: increase(query_pilot_budget_exhausted_total[15m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          threshold_status: needs_enterprise_confirmation
+        annotations:
+          summary: Agent or model budget exhaustion is elevated
+          runbook_url: docs/operations/alert-runbook.md#querypilotbudgetexhaustion
+
+      - alert: QueryPilotSchemaEmbeddingFailures
+        expr: |
+          sum(rate(query_pilot_schema_embedding_requests_total{status="error"}[10m]))
+          / clamp_min(sum(rate(query_pilot_schema_embedding_requests_total[10m])), 0.001) > 0.20
+          and sum(rate(query_pilot_schema_embedding_requests_total[10m])) > 0.01
+        for: 10m
+        labels:
+          severity: warning
+          threshold_status: needs_enterprise_confirmation
+        annotations:
+          summary: Schema embedding failures exceed the provisional ratio
+          runbook_url: docs/operations/alert-runbook.md#querypilotschemaembeddingfailures

@@ -1,0 +1,24 @@
+CREATE TABLE IF NOT EXISTS users (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  username VARCHAR(128) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  role VARCHAR(32) NOT NULL DEFAULT 'viewer',
+  tenant_id VARCHAR(64) NOT NULL DEFAULT 'default',
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  failed_attempts INT NOT NULL DEFAULT 0,
+  locked_until DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) CHARACTER SET utf8mb4;
+
+CREATE TABLE IF NOT EXISTS user_sessions (
+  id CHAR(36) PRIMARY KEY,
+  user_id BIGINT NOT NULL,
+  refresh_token_hash CHAR(64) NOT NULL UNIQUE,
+  expires_at DATETIME NOT NULL,
+  revoked_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_user_sessions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_user_sessions_user (user_id),
+  INDEX idx_user_sessions_expiry (expires_at)
+) CHARACTER SET utf8mb4;

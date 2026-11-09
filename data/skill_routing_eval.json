@@ -1,0 +1,16 @@
+{
+  "version": "2026-11-04-v1",
+  "description": "固定路由评测集；用于比较 Skill 路由，不代表 SQL 或业务结果准确率。",
+  "cases": [
+    {"id": "sales-revenue", "question": "查询本月销售额", "expected_skill_id": "sales-analysis"},
+    {"id": "sales-customer", "question": "按客户统计订单金额", "expected_skill_id": "sales-analysis"},
+    {"id": "sales-gross-margin", "question": "查询毛利", "expected_skill_id": "sales-analysis"},
+    {"id": "receivables-pending", "question": "查询各区域待回款", "expected_skill_id": "receivables-analysis"},
+    {"id": "receivables-overdue", "question": "统计逾期应收账款", "expected_skill_id": "receivables-analysis"},
+    {"id": "trend-year", "question": "对比销售额同比趋势", "expected_skill_id": "trend-analysis"},
+    {"id": "trend-anomaly", "question": "找出订单金额异常波动", "expected_skill_id": "trend-analysis"},
+    {"id": "schema-keys", "question": "查看订单和客户的主外键关系", "expected_skill_id": "schema-exploration"},
+    {"id": "sql-slow", "question": "检查这段 SQL 为什么执行慢", "expected_skill_id": "sql-diagnostics"},
+    {"id": "unmatched", "question": "帮我处理一下", "expected_skill_id": null}
+  ]
+}

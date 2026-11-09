@@ -1,0 +1,4 @@
+# Optional experimental connectors; install only on hosts testing these backends.
+oracledb>=3.4.2,<4
+pymssql>=2.3,<3
+clickhouse-driver>=0.2.9,<0.3

@@ -1,0 +1,18 @@
+{
+  "drill_id": "replace-with-actual-drill-id",
+  "drill_type": "mysql_restore",
+  "environment": "isolated-test",
+  "started_at": "2026-09-18T09:00:00+08:00",
+  "ended_at": "2026-09-18T09:00:00+08:00",
+  "outcome": "blocked",
+  "checks": [
+    {
+      "name": "replace-with-actual-check",
+      "status": "blocked",
+      "detail": "Replace this example with the observed result."
+    }
+  ],
+  "evidence_files": [],
+  "rpo_seconds": null,
+  "rto_seconds": null
+}

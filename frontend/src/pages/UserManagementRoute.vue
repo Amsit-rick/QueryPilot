@@ -1,0 +1,7 @@
+<script setup>
+import { inject } from 'vue'
+import { appContextKey } from '../appContext'
+import UserManagementPage from '../components/UserManagementPage.vue'
+const { newUser, newGrant, users, userError, grantUser, grants, grantError, datasources, grantColumns, policyDatasource, policyRole, rolePolicy, policySchema, policyError, policyBusy, openView, createUser, toggleUser, changeRole, resetUserPassword, openGrants, removeUser, selectGrantDatasource, addGrant, removeGrant, selectPolicyDatasource, selectPolicyRole, togglePolicyTable, togglePolicyColumn, setPolicyMask, saveRolePolicy } = inject(appContextKey)
+</script>
+<template><UserManagementPage v-model:new-user="newUser" v-model:new-grant="newGrant" :users="users" :error="userError" :grant-user="grantUser" :grants="grants" :grant-error="grantError" :datasources="datasources" :grant-columns="grantColumns" :policy-datasource="policyDatasource" :policy-role="policyRole" :role-policy="rolePolicy" :policy-schema="policySchema" :policy-error="policyError" :policy-busy="policyBusy" @back="openView('query')" @create="createUser" @toggle="toggleUser" @change-role="changeRole" @reset-password="resetUserPassword" @open-grants="openGrants" @remove-user="removeUser" @select-datasource="selectGrantDatasource" @add-grant="addGrant" @remove-grant="removeGrant" @select-policy-datasource="selectPolicyDatasource" @select-policy-role="selectPolicyRole" @toggle-policy-table="togglePolicyTable" @toggle-policy-column="togglePolicyColumn" @set-policy-mask="setPolicyMask" @save-policy="saveRolePolicy" /></template>

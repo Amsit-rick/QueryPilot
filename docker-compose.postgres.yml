@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: query_agent
+      POSTGRES_USER: query_app
+      POSTGRES_PASSWORD: query_app_dev
+      POSTGRES_READONLY_USER: query_readonly
+      POSTGRES_READONLY_PASSWORD: query_readonly_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations/postgres/01-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./migrations/postgres/readonly-init.sh:/docker-entrypoint-initdb.d/02-readonly-init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U query_app -d query_agent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+volumes:
+  postgres_data:

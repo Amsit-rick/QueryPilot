@@ -1,0 +1,249 @@
+name: data-query-agent-ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      require_external_model:
+        description: '要求 approved feedback 使用当前外部模型回归通过'
+        required: false
+        default: false
+        type: boolean
+      require_external_embedding:
+        description: '要求 Schema Embedding 外部服务验收通过'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  gates:
+    name: 静态检查与后端回归
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements.txt pip-audit
+
+      - name: 迁移与密钥静态检查
+        run: python scripts/ci_verify.py --skip-tests --skip-frontend --skip-e2e --skip-audit --report artifacts/ci-static.json
+
+      - name: 后端全量测试与高风险回归
+        run: python scripts/ci_verify.py --skip-frontend --skip-e2e --require-audit --report artifacts/ci-report.json
+
+      - name: 反思动作、结果与安全组合发布门禁
+        run: |
+          python scripts/evaluate_reflection.py --dataset data/reflection_eval.json --output artifacts/reflection-eval.json
+          python scripts/evaluate_reflection_results.py --dataset data/reflection_result_eval.json --output artifacts/reflection-result-eval.json
+          python scripts/evaluate_reflection_security.py --dataset data/reflection_security_eval.json --report artifacts/reflection-security-eval.json
+          python scripts/build_reflection_release_gate.py --action artifacts/reflection-eval.json --result artifacts/reflection-result-eval.json --security artifacts/reflection-security-eval.json --output artifacts/reflection-release-gate.json
+
+      - name: 已批准 badcase 当前模型回归
+        env:
+          MODEL_API_KEY: ${{ secrets.MODEL_API_KEY }}
+        run: |
+          EXTRA_ARGS=""
+          if [ "${{ inputs.require_external_model }}" = "true" ]; then
+            EXTRA_ARGS="--require-external"
+          fi
+          python scripts/evaluate_feedback_regression.py --dataset data/feedback_regression_eval.json --output artifacts/feedback-regression.json $EXTRA_ARGS
+
+      - name: 业务 Gold Question SQL Result 评测
+        env:
+          MODEL_API_KEY: ${{ secrets.MODEL_API_KEY }}
+        run: |
+          EXTRA_ARGS=""
+          if [ "${{ inputs.require_external_model }}" = "true" ]; then
+            EXTRA_ARGS="--require-external"
+          fi
+          python scripts/evaluate_business_gold.py --dataset data/skill_query_eval.json --output artifacts/business-gold-eval.json $EXTRA_ARGS
+
+      - name: Schema Embedding 外部服务验收
+        env:
+          SCHEMA_EMBEDDING_API_KEY: ${{ secrets.SCHEMA_EMBEDDING_API_KEY }}
+        run: |
+          EXTRA_ARGS=""
+          export SCHEMA_EMBEDDING_PROVIDER=disabled
+          if [ "${{ inputs.require_external_embedding }}" = "true" ]; then
+            EXTRA_ARGS="--require-external"
+            export SCHEMA_EMBEDDING_PROVIDER="${{ vars.SCHEMA_EMBEDDING_PROVIDER }}"
+            export SCHEMA_EMBEDDING_BASE_URL="${{ vars.SCHEMA_EMBEDDING_BASE_URL }}"
+            export SCHEMA_EMBEDDING_MODEL="${{ vars.SCHEMA_EMBEDDING_MODEL }}"
+            export SCHEMA_EMBEDDING_REMOTE_ALLOWED=true
+          fi
+          python scripts/schema_embedding_acceptance.py --output artifacts/schema-embedding-acceptance.json $EXTRA_ARGS
+
+      - name: SQL 安全与 1500 表 Schema 召回门禁
+        run: |
+          python scripts/evaluate_sql_security.py --dataset data/sql_security_eval.json --report artifacts/sql-security-eval.json
+          python scripts/evaluate_schema_retrieval.py --iterations 3 --dataset data/schema_retrieval_eval.json --output artifacts/schema-retrieval-eval.json
+
+      - name: Redis checkpoint 重启与 fencing 演练
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y redis-server
+          python scripts/redis_recovery_drill.py --redis-server "$(command -v redis-server)" --output artifacts/redis-recovery-drill.json
+
+      - name: Schema Embedding Redis 共享治理演练
+        run: python scripts/schema_embedding_redis_drill.py --redis-server "$(command -v redis-server)" --output artifacts/schema-embedding-redis-drill.json
+
+      - name: 多 Worker Prometheus 聚合验收
+        run: python scripts/multiprocess_metrics_acceptance.py --workers 2 --requests 24 --output artifacts/multiprocess-metrics-acceptance.json
+
+      - name: SQLite 单进程容量回归门禁
+        env:
+          DATABASE_BACKEND: sqlite
+          AUTH_ENABLED: 'false'
+        run: |
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 8015 > artifacts/capacity-api.log 2>&1 &
+          API_PID=$!
+          trap 'kill "$API_PID" 2>/dev/null || true' EXIT
+          for i in $(seq 1 40); do
+            if curl -sf http://127.0.0.1:8015/health > /dev/null; then break; fi
+            sleep 1
+          done
+          python scripts/stress_runner.py --url http://127.0.0.1:8015/api/v1/query --requests 50 --workers 10 --min-success-rate 1 --p95-max-ms 3000 --p99-max-ms 5000 --report artifacts/capacity-report.json
+
+      - name: 汇总本地生产安全验收
+        run: python scripts/production_security_acceptance.py --reflection artifacts/reflection-release-gate.json --sql-security artifacts/sql-security-eval.json --schema artifacts/schema-retrieval-eval.json --redis artifacts/redis-recovery-drill.json --embedding-redis artifacts/schema-embedding-redis-drill.json --multiprocess-metrics artifacts/multiprocess-metrics-acceptance.json --capacity artifacts/capacity-report.json --output artifacts/production-security-acceptance.json
+
+      - name: 生成 MySQL 迁移预检证据
+        run: python scripts/mysql_migrate.py --dry-run --report artifacts/migration-plan.json
+
+      - name: 校验 Prometheus 告警规则
+        run: python scripts/validate_alert_rules.py --report artifacts/alert-rules-validation.json
+
+      - name: 生成 CycloneDX SBOM
+        run: python scripts/generate_sbom.py --output artifacts/sbom.cdx.json
+
+      - name: 生成许可证盘点
+        run: python scripts/operations/license_inventory.py --sbom artifacts/sbom.cdx.json --output artifacts/license-inventory.json --require-complete
+
+      - name: 生成容器镜像锁定清单
+        run: python scripts/operations/image_inventory.py --output artifacts/image-inventory.json
+
+      - name: 汇总发布证据
+        run: python scripts/operations/release_evidence.py --ci-report artifacts/ci-report.json --sbom artifacts/sbom.cdx.json --evidence migration=artifacts/migration-plan.json --evidence licenses=artifacts/license-inventory.json --evidence images=artifacts/image-inventory.json --evidence alerts=artifacts/alert-rules-validation.json --evidence reflection=artifacts/reflection-release-gate.json --evidence feedback-regression=artifacts/feedback-regression.json --evidence business-gold=artifacts/business-gold-eval.json --evidence schema-embedding=artifacts/schema-embedding-acceptance.json --evidence schema-embedding-redis=artifacts/schema-embedding-redis-drill.json --evidence multiprocess-metrics=artifacts/multiprocess-metrics-acceptance.json --evidence sql-security=artifacts/sql-security-eval.json --evidence schema=artifacts/schema-retrieval-eval.json --evidence redis-recovery=artifacts/redis-recovery-drill.json --evidence capacity=artifacts/capacity-report.json --evidence production-security=artifacts/production-security-acceptance.json --output artifacts/release-evidence.json
+
+      - name: 上传测试报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-report
+          path: artifacts/
+          if-no-files-found: warn
+
+  frontend:
+    name: 前端构建
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  e2e:
+    name: 端到端回归
+    runs-on: ubuntu-latest
+    needs: [gates, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements.txt
+      - run: npm ci
+        working-directory: frontend
+
+      - name: 启动后端 API（SQLite 模式）
+        env:
+          DATABASE_BACKEND: sqlite
+          AUTH_ENABLED: 'false'
+        run: |
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 &
+          for i in $(seq 1 40); do
+            if curl -sf http://127.0.0.1:8000/health > /dev/null; then
+              echo "API 就绪"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "API 启动超时"
+          exit 1
+
+      - name: 安装 Playwright 浏览器
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+
+      - name: 执行 Playwright 用例
+        run: npx playwright test --reporter=line
+        working-directory: frontend
+
+  release-gate:
+    name: 发布门禁（不执行部署）
+    runs-on: ubuntu-latest
+    needs: [gates, frontend, e2e]
+    steps:
+      - name: 下载发布证据
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-report
+          path: artifacts
+
+      - name: 校验本地发布证据闭环
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          release = json.loads(Path("artifacts/release-evidence.json").read_text(encoding="utf-8"))
+          security = json.loads(Path("artifacts/production-security-acceptance.json").read_text(encoding="utf-8"))
+          feedback = json.loads(Path("artifacts/feedback-regression.json").read_text(encoding="utf-8"))
+          business_gold = json.loads(Path("artifacts/business-gold-eval.json").read_text(encoding="utf-8"))
+          schema_embedding = json.loads(Path("artifacts/schema-embedding-acceptance.json").read_text(encoding="utf-8"))
+          schema_embedding_redis = json.loads(Path("artifacts/schema-embedding-redis-drill.json").read_text(encoding="utf-8"))
+          multiprocess_metrics = json.loads(Path("artifacts/multiprocess-metrics-acceptance.json").read_text(encoding="utf-8"))
+          if not release.get("local_evidence_complete"):
+              raise SystemExit("release evidence is incomplete")
+          if not security.get("local_gate_passed"):
+              raise SystemExit("local production security gate failed")
+          if feedback.get("external_validation") == "failed":
+              raise SystemExit("approved feedback regression failed")
+          if feedback.get("external_validation") == "not_run":
+              print("Approved feedback external-model regression was not run; production release remains blocked.")
+          if not business_gold.get("local_gate", {}).get("passed"):
+              raise SystemExit("business gold dataset integrity failed")
+          if business_gold.get("external_validation") == "failed":
+              raise SystemExit("business gold current-model regression failed")
+          if business_gold.get("external_validation") == "not_run":
+              print("Business gold external-model regression was not run; production release remains blocked.")
+          if schema_embedding.get("external_validation") == "failed":
+              raise SystemExit("schema embedding external-provider acceptance failed")
+          if schema_embedding.get("external_validation") == "not_run":
+              print("Schema embedding external-provider acceptance was not run; production release remains blocked.")
+          if not schema_embedding_redis.get("passed"):
+              raise SystemExit("schema embedding Redis drill failed")
+          if not multiprocess_metrics.get("passed"):
+              raise SystemExit("multiprocess metrics acceptance failed")
+          print("Local release evidence passed; external production approvals remain explicit blockers.")
+          PY

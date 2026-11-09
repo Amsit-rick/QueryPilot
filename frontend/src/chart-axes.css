@@ -1,0 +1,76 @@
+.asset-bar-row,
+.asset-bar-axis {
+  display: grid;
+  grid-template-columns: minmax(70px, 150px) minmax(120px, 1fr) minmax(70px, 100px);
+  gap: 10px;
+  align-items: center;
+}
+
+.asset-bar-row > div {
+  background:
+    linear-gradient(to right,
+      transparent calc(25% - 0.5px), #dce4e6 25%, transparent calc(25% + 0.5px),
+      transparent calc(50% - 0.5px), #dce4e6 50%, transparent calc(50% + 0.5px),
+      transparent calc(75% - 0.5px), #dce4e6 75%, transparent calc(75% + 0.5px)),
+    #eef2f2;
+  border-radius: 2px;
+}
+
+.asset-bar-row i {
+  border-radius: 2px;
+}
+
+.asset-bar-axis > div {
+  display: flex;
+  justify-content: space-between;
+  color: #7a8993;
+  font-size: 10px;
+}
+
+.asset-bar-axis > div i {
+  font-style: normal;
+}
+
+.asset-plot svg {
+  height: auto;
+  aspect-ratio: 960 / 430;
+}
+
+.asset-plot .plot-axis {
+  stroke: #b9c7cb;
+  stroke-width: 1;
+}
+
+.asset-plot .plot-grid {
+  stroke: #e0e7e9;
+  stroke-width: 1;
+  stroke-dasharray: 4 5;
+}
+
+.asset-plot .plot-tick-label {
+  fill: #52636d;
+  font-family: Inter, "Segoe UI", sans-serif;
+  font-size: 13px;
+}
+
+.asset-plot .plot-axis-label {
+  fill: #33444e;
+  font-family: Inter, "Segoe UI", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.asset-plot .plot-line {
+  stroke-width: 3;
+}
+
+@media (max-width: 620px) {
+  .asset-bar-row,
+  .asset-bar-axis {
+    grid-template-columns: minmax(64px, 100px) minmax(80px, 1fr) 68px;
+  }
+
+  .asset-plot svg {
+    min-height: 240px;
+  }
+}

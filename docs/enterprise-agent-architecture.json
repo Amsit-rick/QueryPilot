@@ -1,0 +1,294 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Enterprise Data Query Agent",
+    "locale": "zh-CN",
+    "output": "docs/enterprise-agent-architecture.html",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "业务用户",
+      "pos": [
+        40,
+        300
+      ],
+      "size": [
+        140,
+        64
+      ]
+    },
+    {
+      "id": "frontend",
+      "type": "frontend",
+      "label": "查询工作台",
+      "pos": [
+        250,
+        300
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "gateway",
+      "type": "security",
+      "label": "API 入口",
+      "pos": [
+        470,
+        300
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "Agent 编排层",
+      "pos": [
+        710,
+        300
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "model",
+      "type": "cloud",
+      "label": "LLM Provider",
+      "pos": [
+        710,
+        125
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "retrieval",
+      "type": "backend",
+      "label": "Schema + RAG",
+      "pos": [
+        710,
+        475
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "guard",
+      "type": "security",
+      "label": "SQL 安全护栏",
+      "pos": [
+        950,
+        300
+      ],
+      "size": [
+        180,
+        64
+      ]
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "企业数据源",
+      "pos": [
+        1210,
+        300
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "ops",
+      "type": "cloud",
+      "label": "审计与可观测",
+      "pos": [
+        950,
+        510
+      ],
+      "size": [
+        180,
+        64
+      ]
+    },
+    {
+      "id": "export",
+      "type": "backend",
+      "label": "导出任务",
+      "pos": [
+        1210,
+        510
+      ],
+      "size": [
+        170,
+        64
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "用户侧",
+      "wraps": [
+        "user",
+        "frontend"
+      ],
+      "pad": 18
+    },
+    {
+      "kind": "security-group",
+      "label": "Agent 服务端（受控 API）",
+      "wraps": [
+        "gateway",
+        "agent",
+        "retrieval",
+        "guard",
+        "ops",
+        "export"
+      ],
+      "pad": 20
+    },
+    {
+      "kind": "security-group",
+      "label": "只读数据边界",
+      "wraps": [
+        "db"
+      ],
+      "pad": 18
+    }
+  ],
+  "connections": [
+    {
+      "from": "user",
+      "to": "frontend",
+      "label": "HTTPS / 交互",
+      "variant": "emphasis"
+    },
+    {
+      "from": "frontend",
+      "to": "gateway",
+      "label": "JSON API",
+      "variant": "emphasis"
+    },
+    {
+      "from": "gateway",
+      "to": "agent",
+      "label": "JWT + RBAC",
+      "variant": "security"
+    },
+    {
+      "from": "agent",
+      "to": "model",
+      "label": "Chat Completions",
+      "route": "orthogonal-v"
+    },
+    {
+      "from": "agent",
+      "to": "retrieval",
+      "label": "检索上下文",
+      "route": "orthogonal-v"
+    },
+    {
+      "from": "agent",
+      "to": "guard",
+      "label": "生成 SQL",
+      "variant": "emphasis"
+    },
+    {
+      "from": "guard",
+      "to": "db",
+      "label": "只读 SQL",
+      "variant": "security"
+    },
+    {
+      "from": "db",
+      "to": "agent",
+      "label": "结果集",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "bottom",
+      "via": [
+        [
+          1295,
+          390
+        ],
+        [
+          795,
+          390
+        ]
+      ],
+      "labelAt": [
+        1045,
+        378
+      ]
+    },
+    {
+      "from": "agent",
+      "to": "ops",
+      "label": "脱敏 Trace",
+      "variant": "dashed",
+      "route": "orthogonal-v"
+    },
+    {
+      "from": "agent",
+      "to": "export",
+      "label": "异步导出",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "via": [
+        [
+          795,
+          390
+        ],
+        [
+          1295,
+          390
+        ]
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "已验证能力",
+      "items": [
+        "MySQL 主查询链路已接入并通过集成测试",
+        "SQL 只读护栏、参数化、分页和超时已覆盖",
+        "前端通过 API 使用服务端数据源，用户无需配置 MySQL"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "生产接入边界",
+      "items": [
+        "正式 OIDC/JWKS、Vault/KMS 和外部监控需要企业基础设施",
+        "Oracle 实例尚未提供，Oracle 连通性未宣称通过",
+        "生产数据库必须使用 DBA 创建的只读账号"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "关键证据",
+      "items": [
+        "app/main.py：查询与导出 API",
+        "app/guardrails.py：SQL 解析和白名单",
+        "docker-compose.app.yml：API 与 MySQL 服务边界"
+      ]
+    }
+  ]
+}

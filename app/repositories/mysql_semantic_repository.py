@@ -1,0 +1,2 @@
+from .memory_semantic_repository import InMemorySemanticRepository
+class MySQLSemanticRepository(InMemorySemanticRepository): pass

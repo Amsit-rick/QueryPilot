@@ -1,0 +1,120 @@
+{
+  "format": "query-pilot-business-gold-dataset",
+  "dataset_version": "business-gold-synthetic-v1",
+  "synthetic": true,
+  "version": "2026-11-04-v3",
+  "evaluation_type": "skill_sql_result_quality",
+  "database": "isolated_synthetic_sqlite_fixture",
+  "case_count": 11,
+  "coverage": [
+    "aggregation",
+    "relational_join",
+    "left_join",
+    "date_filter",
+    "join_fanout",
+    "status_filter",
+    "multi_fact_preaggregation"
+  ],
+  "cases": [
+    {
+      "id": "regional-sales-total",
+      "category": "aggregation",
+      "question": "各区域销售额",
+      "skill_id": "sales-analysis",
+      "gold_sql": "SELECT region, SUM(amount) AS total_amount FROM sales GROUP BY region ORDER BY region",
+      "expected_columns": ["region", "total_amount"],
+      "expected_rows": [["华东", 1960.0], ["华南", 980.0]]
+    },
+    {
+      "id": "regional-sales-count",
+      "category": "aggregation",
+      "question": "各区域分别有多少笔销售记录",
+      "skill_id": "sales-analysis",
+      "gold_sql": "SELECT region, COUNT(*) AS sale_count FROM sales GROUP BY region ORDER BY region",
+      "expected_columns": ["region", "sale_count"],
+      "expected_rows": [["华东", 2], ["华南", 1]]
+    },
+    {
+      "id": "top-sale-record",
+      "category": "sorting_limit",
+      "question": "销售金额最高的一笔记录是什么",
+      "skill_id": "sales-analysis",
+      "gold_sql": "SELECT id, region, amount FROM sales ORDER BY amount DESC, id ASC LIMIT 1",
+      "expected_columns": ["id", "region", "amount"],
+      "expected_rows": [[1, "华东", 1200.0]]
+    },
+    {
+      "id": "paid-revenue-by-product-category",
+      "category": "relational_join",
+      "question": "已支付订单各商品类别的销售额是多少",
+      "skill_id": "sales-analysis",
+      "gold_sql": "SELECT p.category, SUM(oi.quantity * oi.unit_price) AS sales_amount FROM orders o JOIN order_items oi ON oi.order_id = o.id JOIN products p ON p.id = oi.product_id WHERE o.status = 'paid' GROUP BY p.category ORDER BY p.category",
+      "expected_columns": ["category", "sales_amount"],
+      "expected_rows": [["Consulting", 320.0], ["Dining", 80.0], ["Hardware", 350.0]]
+    },
+    {
+      "id": "customers-without-paid-orders",
+      "category": "left_join",
+      "question": "哪些客户没有已支付订单",
+      "skill_id": "sales-analysis",
+      "gold_sql": "SELECT c.id, c.name, COUNT(o.id) AS paid_order_count FROM customers c LEFT JOIN orders o ON o.customer_id = c.id AND o.status = 'paid' GROUP BY c.id, c.name HAVING COUNT(o.id) = 0 ORDER BY c.id",
+      "expected_columns": ["id", "name", "paid_order_count"],
+      "expected_rows": [[5, "新月商贸", 0]]
+    },
+    {
+      "id": "august-paid-order-total",
+      "category": "date_filter",
+      "question": "2026年8月已支付订单数和收款金额是多少",
+      "skill_id": "sales-analysis",
+      "gold_sql": "SELECT COUNT(DISTINCT o.id) AS paid_order_count, SUM(p.amount) AS paid_amount FROM orders o JOIN payments p ON p.order_id = o.id WHERE o.status = 'paid' AND o.order_date >= '2026-08-01' AND o.order_date < '2026-09-01'",
+      "expected_columns": ["paid_order_count", "paid_amount"],
+      "expected_rows": [[4, 550.0]]
+    },
+    {
+      "id": "paid-revenue-by-customer",
+      "category": "relational_join",
+      "question": "每个客户累计已收款金额是多少",
+      "skill_id": "sales-analysis",
+      "gold_sql": "SELECT c.name, SUM(p.amount) AS paid_amount FROM customers c JOIN orders o ON o.customer_id = c.id JOIN payments p ON p.order_id = o.id WHERE o.status = 'paid' GROUP BY c.id, c.name ORDER BY c.id",
+      "expected_columns": ["name", "paid_amount"],
+      "expected_rows": [["星河科技", 350.0], ["南方零售", 120.0], ["北辰制造", 200.0], ["海风餐饮", 80.0]]
+    },
+    {
+      "id": "paid-revenue-by-region-payment-join",
+      "category": "join_fanout",
+      "question": "按区域统计已支付订单的收款金额",
+      "skill_id": "sales-analysis",
+      "gold_sql": "SELECT c.region, SUM(p.amount) AS paid_amount FROM orders o JOIN customers c ON c.id = o.customer_id JOIN payments p ON p.order_id = o.id WHERE o.status = 'paid' GROUP BY c.region ORDER BY c.region",
+      "expected_columns": ["region", "paid_amount"],
+      "expected_rows": [["华东", 550.0], ["华南", 200.0]]
+    },
+    {
+      "id": "paid-order-and-line-count-by-region",
+      "category": "join_fanout",
+      "question": "各区域已支付订单数和订单商品行数分别是多少",
+      "skill_id": "sales-analysis",
+      "gold_sql": "SELECT c.region, COUNT(DISTINCT o.id) AS paid_order_count, COUNT(oi.id) AS item_line_count FROM orders o JOIN customers c ON c.id = o.customer_id JOIN order_items oi ON oi.order_id = o.id WHERE o.status = 'paid' GROUP BY c.region ORDER BY c.region",
+      "expected_columns": ["region", "paid_order_count", "item_line_count"],
+      "expected_rows": [["华东", 3, 4], ["华南", 2, 2]]
+    },
+    {
+      "id": "order-count-by-status",
+      "category": "status_filter",
+      "question": "订单按状态分别有多少笔",
+      "skill_id": "sales-analysis",
+      "gold_sql": "SELECT status, COUNT(*) AS order_count FROM orders GROUP BY status ORDER BY status",
+      "expected_columns": ["status", "order_count"],
+      "expected_rows": [["cancelled", 1], ["paid", 5], ["pending", 1]]
+    },
+    {
+      "id": "paid-order-item-and-payment-totals",
+      "category": "multi_fact_preaggregation",
+      "question": "逐笔列出已支付订单的商品金额和实收金额",
+      "skill_id": "sales-analysis",
+      "gold_sql": "WITH item_totals AS (SELECT oi.order_id, SUM(oi.quantity * oi.unit_price) AS item_amount FROM order_items AS oi GROUP BY oi.order_id), payment_totals AS (SELECT pay.order_id, SUM(pay.amount) AS paid_amount FROM payments AS pay GROUP BY pay.order_id) SELECT o.id, it.item_amount, pt.paid_amount FROM orders AS o JOIN item_totals AS it ON it.order_id = o.id JOIN payment_totals AS pt ON pt.order_id = o.id WHERE o.status = 'paid' ORDER BY o.id",
+      "expected_columns": ["id", "item_amount", "paid_amount"],
+      "expected_rows": [[101, 250.0, 250.0], [102, 100.0, 100.0], [103, 120.0, 120.0], [105, 200.0, 200.0], [107, 80.0, 80.0]],
+      "naive_result_rows": [[101, 500.0, 500.0], [102, 100.0, 100.0], [103, 120.0, 120.0], [105, 200.0, 200.0], [107, 80.0, 80.0]]
+    }
+  ]
+}

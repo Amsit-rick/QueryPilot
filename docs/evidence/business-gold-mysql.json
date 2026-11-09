@@ -1,0 +1,451 @@
+{
+  "format": "query-pilot-business-gold-mysql-report",
+  "version": 1,
+  "dataset_version": "business-gold-mysql-v1",
+  "database": "mysql-enterprise-demo",
+  "model": {
+    "provider": "direct",
+    "model": "deepseek-chat",
+    "prompt_version": "sql-generator-v2"
+  },
+  "comparison": {
+    "column_labels": "ignored",
+    "row_order": "enforced only when the case declares ordered=true",
+    "numeric_tolerance": {
+      "abs_le_1": "0.0001",
+      "abs_gt_1": "0.01"
+    }
+  },
+  "external_validation": "failed",
+  "metrics": {
+    "cases": 40,
+    "gold_integrity_rate": 1.0,
+    "generation_success_rate": 1.0,
+    "guardrail_pass_rate": 0.975,
+    "execution_success_rate": 1.0,
+    "result_exact_match_rate": 0.775,
+    "latency_p50_ms": 2600.0,
+    "latency_p95_ms": 3812.0
+  },
+  "attribution": {
+    "E_EMPTY_RESULT": 1,
+    "E_READONLY_VIOLATION": 1,
+    "E_RESULT_MISMATCH": 7
+  },
+  "local_gate": {
+    "passed": true,
+    "reason_codes": []
+  },
+  "external_gate": {
+    "passed": false,
+    "reason_codes": [
+      "MODEL_RESULT_REGRESSION"
+    ]
+  },
+  "cases": [
+    {
+      "id": "BIZ-001",
+      "category": "sales_by_region",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 3006,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-002",
+      "category": "monthly_trend",
+      "gold_status": "passed",
+      "model_status": "result_mismatch",
+      "error_code": "E_RESULT_MISMATCH",
+      "duration_ms": 2678,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-003",
+      "category": "channel_compare",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 2588,
+      "gold_columns": 3,
+      "model_columns": 3
+    },
+    {
+      "id": "BIZ-004",
+      "category": "customer_level",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 3139,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-005",
+      "category": "industry_join",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 2914,
+      "gold_columns": 1,
+      "model_columns": 1
+    },
+    {
+      "id": "BIZ-006",
+      "category": "cancel_rate",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 2441,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-007",
+      "category": "quarter_total",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 3393,
+      "gold_columns": 1,
+      "model_columns": 1
+    },
+    {
+      "id": "BIZ-008",
+      "category": "avg_order_value",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 2707,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-009",
+      "category": "high_value_orders",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 2882,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-010",
+      "category": "payment_method",
+      "gold_status": "passed",
+      "model_status": "result_mismatch",
+      "error_code": "E_EMPTY_RESULT",
+      "duration_ms": 2572,
+      "gold_columns": 2,
+      "model_columns": 0
+    },
+    {
+      "id": "BIZ-011",
+      "category": "receivables",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 2853,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-012",
+      "category": "refund_ratio",
+      "gold_status": "passed",
+      "model_status": "result_mismatch",
+      "error_code": "E_RESULT_MISMATCH",
+      "duration_ms": 2242,
+      "gold_columns": 2,
+      "model_columns": 3
+    },
+    {
+      "id": "BIZ-013",
+      "category": "payment_status",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 2338,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-014",
+      "category": "customer_industry",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 1606,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-015",
+      "category": "top_customers",
+      "gold_status": "passed",
+      "model_status": "result_mismatch",
+      "error_code": "E_RESULT_MISMATCH",
+      "duration_ms": 2466,
+      "gold_columns": 2,
+      "model_columns": 6
+    },
+    {
+      "id": "BIZ-016",
+      "category": "new_customers",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 2067,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-017",
+      "category": "credit_by_region",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 2036,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-018",
+      "category": "inventory_alert",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 3518,
+      "gold_columns": 1,
+      "model_columns": 1
+    },
+    {
+      "id": "BIZ-019",
+      "category": "inventory_by_warehouse",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 2196,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-020",
+      "category": "inventory_gap",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 2065,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-021",
+      "category": "product_category",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 2193,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-022",
+      "category": "margin_filter",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 2379,
+      "gold_columns": 1,
+      "model_columns": 1
+    },
+    {
+      "id": "BIZ-023",
+      "category": "stockout",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 2314,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-024",
+      "category": "category_price",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 2109,
+      "gold_columns": 1,
+      "model_columns": 1
+    },
+    {
+      "id": "BIZ-025",
+      "category": "headcount_cost",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 2496,
+      "gold_columns": 3,
+      "model_columns": 3
+    },
+    {
+      "id": "BIZ-026",
+      "category": "salary_by_region",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 2248,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-027",
+      "category": "top_suppliers",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 1993,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-028",
+      "category": "active_suppliers",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 2515,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-029",
+      "category": "category_sales",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 3812,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-030",
+      "category": "units_by_region",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 4948,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-031",
+      "category": "industry_aov",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 3491,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-032",
+      "category": "orders_without_payment",
+      "gold_status": "passed",
+      "model_status": "rejected",
+      "error_code": "E_READONLY_VIOLATION",
+      "duration_ms": 2912,
+      "gold_columns": 1
+    },
+    {
+      "id": "BIZ-033",
+      "category": "orders_vs_payments",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 3703,
+      "gold_columns": 3,
+      "model_columns": 3
+    },
+    {
+      "id": "BIZ-034",
+      "category": "signup_trend",
+      "gold_status": "passed",
+      "model_status": "result_mismatch",
+      "error_code": "E_RESULT_MISMATCH",
+      "duration_ms": 2958,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-035",
+      "category": "orders_per_customer",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 2917,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-036",
+      "category": "payment_by_order_status",
+      "gold_status": "passed",
+      "model_status": "result_mismatch",
+      "error_code": "E_RESULT_MISMATCH",
+      "duration_ms": 3332,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-037",
+      "category": "cte_customer_totals",
+      "gold_status": "passed",
+      "model_status": "result_mismatch",
+      "error_code": "E_RESULT_MISMATCH",
+      "duration_ms": 3533,
+      "gold_columns": 2,
+      "model_columns": 3
+    },
+    {
+      "id": "BIZ-038",
+      "category": "cte_paid_join",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 3135,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-039",
+      "category": "refunded_by_region",
+      "gold_status": "passed",
+      "model_status": "passed",
+      "error_code": "",
+      "duration_ms": 2600,
+      "gold_columns": 2,
+      "model_columns": 2
+    },
+    {
+      "id": "BIZ-040",
+      "category": "top_customer_value",
+      "gold_status": "passed",
+      "model_status": "result_mismatch",
+      "error_code": "E_RESULT_MISMATCH",
+      "duration_ms": 4091,
+      "gold_columns": 3,
+      "model_columns": 4
+    }
+  ],
+  "limitations": [
+    "The database holds synthetic enterprise demo data, not real enterprise business data.",
+    "Matching covers only the versioned questions in this dataset.",
+    "The report does not store questions, generated SQL, parameter values or result rows."
+  ]
+}

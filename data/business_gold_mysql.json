@@ -1,0 +1,309 @@
+{
+  "dataset_version": "business-gold-mysql-v1",
+  "description": "40 business questions over the enterprise demo schema, executed against a real MySQL instance. Gold SQL and model SQL run on the same read-only database; data is synthetic enterprise demo data.",
+  "synthetic_data": true,
+  "database": "mysql-enterprise-demo",
+  "schema_tables": [
+    "enterprise_orders",
+    "enterprise_customers",
+    "order_items",
+    "payments",
+    "inventory",
+    "products",
+    "suppliers",
+    "employees"
+  ],
+  "cases": [
+    {
+      "id": "BIZ-001",
+      "category": "sales_by_region",
+      "question": "统计各区域已完成订单的销售总额，按金额从高到低排序",
+      "gold_sql": "SELECT region, ROUND(SUM(total_amount), 2) AS total_sales FROM enterprise_orders WHERE status = 'completed' GROUP BY region ORDER BY total_sales DESC, region ASC",
+      "ordered": true
+    },
+    {
+      "id": "BIZ-002",
+      "category": "monthly_trend",
+      "question": "2025 年每个月的订单总金额是多少，按月升序",
+      "gold_sql": "SELECT MONTH(order_date) AS month, ROUND(SUM(total_amount), 2) AS total FROM enterprise_orders WHERE order_date >= '2025-01-01' AND order_date < '2026-01-01' GROUP BY MONTH(order_date) ORDER BY month ASC",
+      "ordered": true
+    },
+    {
+      "id": "BIZ-003",
+      "category": "channel_compare",
+      "question": "各销售渠道的订单数和平均订单金额分别是多少",
+      "gold_sql": "SELECT channel, COUNT(*) AS order_count, ROUND(AVG(total_amount), 2) AS avg_amount FROM enterprise_orders GROUP BY channel ORDER BY channel ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-004",
+      "category": "customer_level",
+      "question": "每个客户等级各有多少客户",
+      "gold_sql": "SELECT level, COUNT(*) AS customer_count FROM enterprise_customers GROUP BY level ORDER BY level ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-005",
+      "category": "industry_join",
+      "question": "互联网行业客户的订单总金额是多少",
+      "gold_sql": "SELECT ROUND(SUM(o.total_amount), 2) AS total FROM enterprise_orders o JOIN enterprise_customers c ON o.customer_id = c.id WHERE c.industry = '互联网'",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-006",
+      "category": "cancel_rate",
+      "question": "各订单区域的订单取消率分别是多少",
+      "gold_sql": "SELECT region, ROUND(SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) / COUNT(*), 4) AS cancel_rate FROM enterprise_orders GROUP BY region ORDER BY region ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-007",
+      "category": "quarter_total",
+      "question": "2025 年第一季度的订单总金额是多少",
+      "gold_sql": "SELECT ROUND(SUM(total_amount), 2) AS total FROM enterprise_orders WHERE order_date >= '2025-01-01' AND order_date < '2025-04-01'",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-008",
+      "category": "avg_order_value",
+      "question": "各订单区域已完成订单的客单价是多少",
+      "gold_sql": "SELECT region, ROUND(SUM(total_amount) / COUNT(*), 2) AS avg_order_value FROM enterprise_orders WHERE status = 'completed' GROUP BY region ORDER BY region ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-009",
+      "category": "high_value_orders",
+      "question": "订单金额超过 10000 的订单在各订单区域分别有多少单",
+      "gold_sql": "SELECT region, COUNT(*) AS order_count FROM enterprise_orders WHERE total_amount > 10000 GROUP BY region ORDER BY region ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-010",
+      "category": "payment_method",
+      "question": "各支付方式已支付的金额合计是多少",
+      "gold_sql": "SELECT method, ROUND(SUM(amount), 2) AS paid_total FROM payments WHERE status = 'paid' GROUP BY method ORDER BY method ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-011",
+      "category": "receivables",
+      "question": "各订单区域的待回款金额是多少",
+      "gold_sql": "SELECT o.region, ROUND(SUM(p.amount), 2) AS pending_total FROM payments p JOIN enterprise_orders o ON p.order_id = o.id WHERE p.status = 'pending' GROUP BY o.region ORDER BY o.region ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-012",
+      "category": "refund_ratio",
+      "question": "各支付方式的退款金额占比是多少",
+      "gold_sql": "SELECT method, ROUND(SUM(CASE WHEN status = 'refunded' THEN amount ELSE 0 END) / SUM(amount), 4) AS refund_ratio FROM payments GROUP BY method ORDER BY method ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-013",
+      "category": "payment_status",
+      "question": "每种支付状态各有多少笔支付",
+      "gold_sql": "SELECT status, COUNT(*) AS payment_count FROM payments GROUP BY status ORDER BY status ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-014",
+      "category": "customer_industry",
+      "question": "各行业分别有多少客户",
+      "gold_sql": "SELECT industry, COUNT(*) AS customer_count FROM enterprise_customers GROUP BY industry ORDER BY industry ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-015",
+      "category": "top_customers",
+      "question": "信用额度最高的 10 个客户是谁",
+      "gold_sql": "SELECT name, credit_limit FROM enterprise_customers ORDER BY credit_limit DESC, name ASC LIMIT 10",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-016",
+      "category": "new_customers",
+      "question": "2025 年各行业新签约了多少客户",
+      "gold_sql": "SELECT industry, COUNT(*) AS customer_count FROM enterprise_customers WHERE signup_date >= '2025-01-01' AND signup_date < '2026-01-01' GROUP BY industry ORDER BY industry ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-017",
+      "category": "credit_by_region",
+      "question": "各区域客户的平均信用额度是多少",
+      "gold_sql": "SELECT region, ROUND(AVG(credit_limit), 2) AS avg_credit FROM enterprise_customers GROUP BY region ORDER BY region ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-018",
+      "category": "inventory_alert",
+      "question": "有多少个产品和仓库的组合库存低于补货点",
+      "gold_sql": "SELECT COUNT(*) AS alert_count FROM inventory WHERE available_qty < reorder_point",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-019",
+      "category": "inventory_by_warehouse",
+      "question": "各仓库的平均可用库存是多少",
+      "gold_sql": "SELECT warehouse, ROUND(AVG(available_qty), 2) AS avg_available FROM inventory GROUP BY warehouse ORDER BY warehouse ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-020",
+      "category": "inventory_gap",
+      "question": "各仓库距离补货点的库存缺口总量是多少",
+      "gold_sql": "SELECT warehouse, SUM(reorder_point - available_qty) AS quantity_gap FROM inventory WHERE available_qty < reorder_point GROUP BY warehouse ORDER BY warehouse ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-021",
+      "category": "product_category",
+      "question": "每个商品类别各有多少个商品",
+      "gold_sql": "SELECT category, COUNT(*) AS product_count FROM products GROUP BY category ORDER BY category ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-022",
+      "category": "margin_filter",
+      "question": "售价高于成本两倍的商品有多少个",
+      "gold_sql": "SELECT COUNT(*) AS product_count FROM products WHERE list_price > cost * 2",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-023",
+      "category": "stockout",
+      "question": "各仓库有多少个商品已经零库存",
+      "gold_sql": "SELECT warehouse, COUNT(*) AS stockout_count FROM inventory WHERE available_qty = 0 GROUP BY warehouse ORDER BY warehouse ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-024",
+      "category": "category_price",
+      "question": "办公设备类商品的平均售价是多少",
+      "gold_sql": "SELECT ROUND(AVG(list_price), 2) AS avg_price FROM products WHERE category = '办公设备'",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-025",
+      "category": "headcount_cost",
+      "question": "各部门有多少人，月度人力成本合计是多少",
+      "gold_sql": "SELECT department, COUNT(*) AS headcount, ROUND(SUM(monthly_cost), 2) AS total_cost FROM employees GROUP BY department ORDER BY department ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-026",
+      "category": "salary_by_region",
+      "question": "各区域员工的平均月薪是多少",
+      "gold_sql": "SELECT region, ROUND(AVG(monthly_cost), 2) AS avg_cost FROM employees GROUP BY region ORDER BY region ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-027",
+      "category": "top_suppliers",
+      "question": "评分最高的 5 家供应商是谁",
+      "gold_sql": "SELECT name, rating FROM suppliers ORDER BY rating DESC, name ASC LIMIT 5",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-028",
+      "category": "active_suppliers",
+      "question": "各区域有多少家活跃供应商",
+      "gold_sql": "SELECT region, COUNT(*) AS supplier_count FROM suppliers WHERE active = 1 GROUP BY region ORDER BY region ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-029",
+      "category": "category_sales",
+      "question": "各商品类别在订单明细中的总金额是多少（不区分订单状态）",
+      "gold_sql": "SELECT p.category, ROUND(SUM(oi.line_amount), 2) AS sales FROM order_items oi JOIN products p ON oi.product_id = p.id GROUP BY p.category ORDER BY p.category ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-030",
+      "category": "units_by_region",
+      "question": "各订单区域卖出的商品件数是多少",
+      "gold_sql": "SELECT o.region, SUM(oi.quantity) AS units FROM order_items oi JOIN enterprise_orders o ON oi.order_id = o.id GROUP BY o.region ORDER BY o.region ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-031",
+      "category": "industry_aov",
+      "question": "各行业客户的平均订单金额是多少",
+      "gold_sql": "SELECT c.industry, ROUND(AVG(o.total_amount), 2) AS avg_amount FROM enterprise_orders o JOIN enterprise_customers c ON o.customer_id = c.id GROUP BY c.industry ORDER BY c.industry ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-032",
+      "category": "orders_without_payment",
+      "question": "有多少个订单完全没有支付记录",
+      "gold_sql": "SELECT COUNT(*) AS order_count FROM enterprise_orders o LEFT JOIN payments p ON o.id = p.order_id WHERE p.id IS NULL",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-033",
+      "category": "orders_vs_payments",
+      "question": "各订单区域的订单数和支付笔数分别是多少",
+      "gold_sql": "SELECT o.region, COUNT(DISTINCT o.id) AS order_count, COUNT(p.id) AS payment_count FROM enterprise_orders o LEFT JOIN payments p ON o.id = p.order_id GROUP BY o.region ORDER BY o.region ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-034",
+      "category": "signup_trend",
+      "question": "2025 年每个月新增了多少客户",
+      "gold_sql": "SELECT MONTH(signup_date) AS month, COUNT(*) AS customer_count FROM enterprise_customers WHERE signup_date >= '2025-01-01' AND signup_date < '2026-01-01' GROUP BY MONTH(signup_date) ORDER BY month ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-035",
+      "category": "orders_per_customer",
+      "question": "各客户等级的人均订单数是多少",
+      "gold_sql": "SELECT c.level, ROUND(COUNT(o.id) / COUNT(DISTINCT c.id), 2) AS orders_per_customer FROM enterprise_customers c LEFT JOIN enterprise_orders o ON o.customer_id = c.id GROUP BY c.level ORDER BY c.level ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-036",
+      "category": "payment_by_order_status",
+      "question": "已完成订单中，各支付方式的平均支付金额是多少",
+      "gold_sql": "SELECT p.method, ROUND(AVG(p.amount), 2) AS avg_paid FROM payments p JOIN enterprise_orders o ON p.order_id = o.id WHERE o.status = 'completed' AND p.status = 'paid' GROUP BY p.method ORDER BY p.method ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-037",
+      "category": "cte_customer_totals",
+      "question": "用公共表表达式统计每个客户的累计完成订单金额，列出超过 50000 的前 20 个客户",
+      "gold_sql": "WITH order_totals AS (SELECT customer_id, SUM(total_amount) AS total FROM enterprise_orders WHERE status = 'completed' GROUP BY customer_id) SELECT customer_id, ROUND(total, 2) AS total FROM order_totals WHERE total > 50000 ORDER BY total DESC, customer_id ASC LIMIT 20",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-038",
+      "category": "cte_paid_join",
+      "question": "先按订单汇总已支付金额，再统计各订单区域的已支付总额",
+      "gold_sql": "WITH paid AS (SELECT order_id, SUM(amount) AS paid_amount FROM payments WHERE status = 'paid' GROUP BY order_id) SELECT o.region, ROUND(SUM(p.paid_amount), 2) AS paid_total FROM enterprise_orders o JOIN paid p ON o.id = p.order_id GROUP BY o.region ORDER BY o.region ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-039",
+      "category": "refunded_by_region",
+      "question": "各订单区域有多少笔退款支付",
+      "gold_sql": "SELECT o.region, COUNT(*) AS refunded_count FROM payments p JOIN enterprise_orders o ON p.order_id = o.id WHERE p.status = 'refunded' GROUP BY o.region ORDER BY o.region ASC",
+      "ordered": false
+    },
+    {
+      "id": "BIZ-040",
+      "category": "top_customer_value",
+      "question": "按累计订单金额找出前 10 个客户，并显示各自的订单数",
+      "gold_sql": "SELECT c.name, COUNT(o.id) AS order_count, ROUND(SUM(o.total_amount), 2) AS total FROM enterprise_customers c JOIN enterprise_orders o ON o.customer_id = c.id GROUP BY c.id, c.name ORDER BY total DESC, c.name ASC LIMIT 10",
+      "ordered": false
+    }
+  ],
+  "value_columns": [
+    "enterprise_orders.status",
+    "enterprise_orders.channel",
+    "enterprise_customers.industry",
+    "enterprise_customers.level",
+    "payments.status",
+    "payments.method",
+    "products.category",
+    "inventory.warehouse",
+    "employees.department"
+  ]
+}

@@ -1,0 +1,2 @@
+ALTER TABLE users
+  ADD COLUMN display_name VARCHAR(128) NOT NULL DEFAULT '' AFTER username;

@@ -1,0 +1,38 @@
+{
+  "format": "query-pilot-feedback-eval-dataset",
+  "version": 1,
+  "dataset_version": "feedback-regression-ci-seed-v1",
+  "synthetic": true,
+  "cases": [
+    {
+      "format": "query-pilot-approved-eval-case-v1",
+      "feedback_id": "ci-seed-sales-by-region",
+      "review_status": "approved",
+      "outcome": "accepted",
+      "question": "按区域汇总销售额",
+      "question_was_sanitized": false,
+      "datasource_id": "sqlite-demo",
+      "expected_sql_template": "SELECT region, SUM(amount) AS total FROM sales GROUP BY region",
+      "expected_sql_contract": {
+        "tables": ["sales"],
+        "columns": ["amount", "region"],
+        "aggregates": ["SUM"],
+        "group_by_columns": ["region"],
+        "order_by_columns": [],
+        "predicate_operators": [],
+        "projection_count": 2,
+        "join_count": 0,
+        "join_types": [],
+        "cte_count": 0,
+        "distinct": false
+      },
+      "expected_result_contract": {},
+      "contains_result_rows": false,
+      "source": "synthetic_ci_seed"
+    }
+  ],
+  "limitations": [
+    "This seed only exercises the CI report contract; it is not administrator-approved enterprise feedback.",
+    "Production release validation must use an exported approved dataset and --require-external."
+  ]
+}

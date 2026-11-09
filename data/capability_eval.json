@@ -1,0 +1,151 @@
+{
+  "version": "2026-11-01-v4",
+  "cases": [
+    {
+      "id": "sem-terms-1",
+      "capability": "semantic",
+      "name": "待回款金额",
+      "example_question": "统计待回款金额",
+      "aliases": ["应收未收"],
+      "keywords": ["待支付", "回款"],
+      "query": "查询待支付金额",
+      "expected_name": "待回款金额"
+    },
+    {
+      "id": "value-grounding-authorized-1",
+      "capability": "value_grounding",
+      "query": "统计华东区域营收",
+      "allowed_schema": {"sales": ["region", "amount"]},
+      "expected_values": ["EAST"],
+      "forbidden_values": ["WEST"]
+    },
+    {
+      "id": "value-grounding-forbidden-1",
+      "capability": "value_grounding",
+      "query": "统计华东区域营收",
+      "allowed_schema": {"sales": ["amount"]},
+      "expected_values": [],
+      "forbidden_values": ["EAST", "WEST"]
+    },
+    {
+      "id": "permission-viewer-1",
+      "capability": "permission",
+      "roles": ["viewer"],
+      "schema": {"sales": ["region", "amount"], "customers": ["name", "region"]},
+      "expected_tables": {"sales": ["region"]}
+    },
+    {
+      "id": "permission-star-1",
+      "capability": "permission",
+      "roles": ["viewer"],
+      "schema": {"sales": ["region", "amount"]},
+      "sql": "SELECT * FROM sales",
+      "expected_error": "E_COLUMN_FORBIDDEN"
+    },
+    {
+      "id": "follow-up-redaction-1",
+      "capability": "follow_up",
+      "task_id": "task-eval",
+      "datasource_id": "sqlite-demo"
+    },
+    {
+      "id": "chart-safe-1",
+      "capability": "chart",
+      "mode": "accept",
+      "columns": ["region", "amount"],
+      "spec": {"kind": "bar", "x_column": "region", "y_columns": ["amount"]}
+    },
+    {
+      "id": "chart-script-1",
+      "capability": "chart",
+      "mode": "reject",
+      "columns": ["region", "amount"],
+      "spec": {"kind": "bar", "x_column": "region", "y_columns": ["amount"], "formatter": "alert(1)"}
+    },
+    {
+      "id": "approval-lifecycle-1",
+      "capability": "approval",
+      "expected_status": "completed"
+    },
+    {
+      "id": "integration-manifest-1",
+      "capability": "integration",
+      "expected_tools": ["schema.list", "query.plan", "task.status", "result.get"]
+    },
+    {
+      "id": "gateway-unsupported-1",
+      "capability": "gateway",
+      "backend": "unsupported",
+      "expected_error": "E_GATEWAY_UNSUPPORTED"
+    },
+    {
+      "id": "oracle-bind-1", "capability": "connector", "backend": "oracle",
+      "sql": "SELECT amount FROM sales WHERE region=:region FETCH FIRST 5 ROWS ONLY",
+      "params": {"region": "east"}, "expected_sql_fragment": ":region"
+    },
+    {
+      "id": "sqlserver-bind-1", "capability": "connector", "backend": "sqlserver",
+      "sql": "SELECT TOP 5 amount FROM sales WHERE region=:region",
+      "params": {"region": "east"}, "expected_sql_fragment": "%(region)s"
+    },
+    {
+      "id": "clickhouse-bind-1", "capability": "connector", "backend": "clickhouse",
+      "sql": "SELECT amount FROM sales WHERE region=:region LIMIT 5",
+      "params": {"region": "east"}, "expected_sql_fragment": "%(region)s"
+    },
+    {
+      "id": "oracle-qualified-access-1", "capability": "connector", "backend": "oracle",
+      "sql": "SELECT amount FROM other.sales", "expected_error": "E_READONLY_VIOLATION"
+    },
+    {
+      "id": "sqlserver-write-1", "capability": "connector", "backend": "sqlserver",
+      "sql": "SELECT * INTO copied FROM sales", "expected_error": "E_READONLY_VIOLATION"
+    },
+    {
+      "id": "clickhouse-file-1", "capability": "connector", "backend": "clickhouse",
+      "sql": "SELECT * FROM file('/secret')", "expected_error": "E_READONLY_VIOLATION"
+    },
+    {
+      "id": "connector-field-permission-1", "capability": "connector", "backend": "oracle",
+      "roles": ["viewer"], "sql": "SELECT amount FROM sales", "expected_error": "E_HALLUCINATED_FIELD"
+    },
+    {
+      "id": "analysis-trend-1", "capability": "analysis", "mode": "trend",
+      "columns": ["month", "amount"],
+      "rows": [["2026-01", 100], ["2026-02", 120], ["2026-03", 150]],
+      "expected_counts": {"trends": 1, "comparisons": 0, "anomalies": 0}
+    },
+    {
+      "id": "analysis-comparison-1", "capability": "analysis", "mode": "period_comparison",
+      "columns": ["month", "amount"],
+      "rows": [["2025-03", 80], ["2026-02", 100], ["2026-03", 120]],
+      "expected_counts": {"trends": 0, "comparisons": 2, "anomalies": 0}
+    },
+    {
+      "id": "analysis-duplicate-period-1", "capability": "analysis", "mode": "auto_insights",
+      "columns": ["day", "amount"],
+      "rows": [["2026-01-01", 10], ["2026-01-01", 20], ["2026-01-02", 30]],
+      "truncated": true,
+      "expected_counts": {"trends": 0, "comparisons": 0, "anomalies": 0},
+      "expected_limitation": "同一时间点"
+    },
+    {
+      "id": "quality-low-confidence-1", "capability": "quality", "kind": "pre_execution_gate",
+      "sql": "SELECT region FROM sales", "confidence": 0.42,
+      "expected_reasons": ["low_confidence"]
+    },
+    {
+      "id": "quality-anomaly-gate-1", "capability": "quality", "kind": "anomaly_gate",
+      "anomalies": [{"column": "amount"}],
+      "expected_reasons": ["candidate_anomaly"]
+    },
+    {
+      "id": "quality-feedback-redaction-1", "capability": "quality", "kind": "feedback_redaction",
+      "question": "查询 alice@example.com 的销售额 password=hunter2",
+      "sql": "SELECT amount FROM sales WHERE region = 'east'",
+      "forbidden_question_value": "alice@example.com",
+      "forbidden_secret_value": "hunter2",
+      "forbidden_sql_value": "east"
+    }
+  ]
+}

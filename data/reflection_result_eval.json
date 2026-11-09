@@ -1,0 +1,93 @@
+{
+  "format": "query-pilot-reflection-result-eval-dataset",
+  "dataset_version": "reflection-result-eval-v1",
+  "synthetic": true,
+  "external_validation": "not_run",
+  "seed_sql": [
+    "CREATE TABLE sales (id INTEGER PRIMARY KEY, region TEXT, amount REAL, sold_at TEXT, status TEXT, deleted_at TEXT)",
+    "CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT, credit_limit REAL)",
+    "CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER, amount REAL, status TEXT)",
+    "CREATE TABLE payments (id INTEGER PRIMARY KEY, customer_id INTEGER, amount REAL)"
+  ],
+  "seed_rows": {
+    "sales": [[1,"华东",1200,"2026-01-05","paid",null],[2,"华南",980,"2026-01-06","paid",null],[3,"华北",1600,"2026-02-02","pending",null],[4,"华东",760,"2026-02-10","paid",null],[5,"西南",2100,"2026-03-01","paid",null],[6,"华南",1330,"2026-03-08","paid",null],[7,"西北",870,"2026-04-11","cancelled",null],[8,"华中",1450,"2026-04-19","paid",null],[9,"东北",990,"2026-05-02","paid",null],[10,"华东",500,"2026-05-20","paid","2026-05-21"]],
+    "customers": [[1,"客户A",1000],[2,"客户B",2000],[3,"客户C",1500]],
+    "orders": [[1,1,100,"paid"],[2,1,200,"paid"],[3,2,300,"paid"],[4,3,400,"pending"]],
+    "payments": [[1,1,80],[2,1,120],[3,2,250],[4,3,100],[5,3,150]]
+  },
+  "families": [
+    {
+      "id": "accepted-aggregate",
+      "scenario": "accepted",
+      "count": 20,
+      "question": "按区域统计销售额",
+      "candidate_sql": "SELECT region, ROUND(SUM(amount), 2) AS total_amount FROM sales WHERE amount >= {threshold} GROUP BY region ORDER BY region",
+      "gold_sql": "SELECT region, ROUND(SUM(amount), 2) AS total_amount FROM sales WHERE amount >= {threshold} GROUP BY region ORDER BY region",
+      "expected_action": "accept",
+      "expected_dimensions": ["region"],
+      "expected_metrics": ["total_amount"]
+    },
+    {
+      "id": "top-n-missing-order",
+      "scenario": "top_n",
+      "count": 20,
+      "question": "销售额最高的前 {limit} 个区域",
+      "candidate_sql": "SELECT region, ROUND(SUM(amount), 2) AS total_amount FROM sales GROUP BY region",
+      "repair_sql": "SELECT region, ROUND(SUM(amount), 2) AS total_amount FROM sales GROUP BY region ORDER BY total_amount DESC LIMIT {limit}",
+      "gold_sql": "SELECT region, ROUND(SUM(amount), 2) AS total_amount FROM sales GROUP BY region ORDER BY total_amount DESC LIMIT {limit}",
+      "expected_action": "regenerate_sql",
+      "expected_dimensions": ["region"],
+      "expected_metrics": ["total_amount"]
+    },
+    {
+      "id": "aggregate-fanout",
+      "scenario": "fanout",
+      "count": 20,
+      "question": "按客户统计订单金额和回款金额",
+      "candidate_sql": "SELECT c.id, SUM(o.amount) AS order_amount, SUM(p.amount) AS paid_amount FROM customers c JOIN orders o ON o.customer_id=c.id JOIN payments p ON p.customer_id=c.id GROUP BY c.id",
+      "repair_sql": "WITH order_sum AS (SELECT customer_id, SUM(amount) AS order_amount FROM orders GROUP BY customer_id), payment_sum AS (SELECT customer_id, SUM(amount) AS paid_amount FROM payments GROUP BY customer_id) SELECT c.id, COALESCE(o.order_amount,0), COALESCE(p.paid_amount,0) FROM customers c LEFT JOIN order_sum o ON o.customer_id=c.id LEFT JOIN payment_sum p ON p.customer_id=c.id ORDER BY c.id",
+      "gold_sql": "WITH order_sum AS (SELECT customer_id, SUM(amount) AS order_amount FROM orders GROUP BY customer_id), payment_sum AS (SELECT customer_id, SUM(amount) AS paid_amount FROM payments GROUP BY customer_id) SELECT c.id, COALESCE(o.order_amount,0), COALESCE(p.paid_amount,0) FROM customers c LEFT JOIN order_sum o ON o.customer_id=c.id LEFT JOIN payment_sum p ON p.customer_id=c.id ORDER BY c.id",
+      "expected_action": "regenerate_sql",
+      "expected_dimensions": ["id"],
+      "expected_metrics": ["order_amount", "paid_amount"],
+      "relationships": [
+        {"from_table":"orders","from_columns":["customer_id"],"to_table":"customers","to_columns":["id"],"cardinality":"many_to_one","confidence":1.0},
+        {"from_table":"payments","from_columns":["customer_id"],"to_table":"customers","to_columns":["id"],"cardinality":"many_to_one","confidence":1.0}
+      ]
+    },
+    {
+      "id": "empty-result",
+      "scenario": "empty_result",
+      "count": 20,
+      "question": "统计 {month} 之后的区域销售额",
+      "candidate_sql": "SELECT region, SUM(amount) AS total_amount FROM sales WHERE sold_at >= '2099-01-01' GROUP BY region",
+      "repair_sql": "SELECT region, SUM(amount) AS total_amount FROM sales WHERE sold_at >= '{month}-01' GROUP BY region ORDER BY region",
+      "gold_sql": "SELECT region, SUM(amount) AS total_amount FROM sales WHERE sold_at >= '{month}-01' GROUP BY region ORDER BY region",
+      "expected_action": "regenerate_sql",
+      "expected_dimensions": ["region"],
+      "expected_metrics": ["total_amount"]
+    },
+    {
+      "id": "business-ambiguity",
+      "scenario": "ambiguity",
+      "count": 20,
+      "question": "统计当前有效订单销售额",
+      "candidate_sql": "SELECT region, SUM(amount) AS total_amount FROM sales GROUP BY region",
+      "expected_action": "ask_clarification",
+      "expected_dimensions": ["region"],
+      "expected_metrics": ["total_amount"],
+      "schema_details": {"tables":{"sales":{"columns":["region","amount","status","deleted_at"]}}}
+    },
+    {
+      "id": "security-hard-gate",
+      "scenario": "security",
+      "count": 20,
+      "kind": "failure",
+      "stage": "validate",
+      "error_code": "E_READONLY_VIOLATION",
+      "expected_action": "fail",
+      "hard_gate": true
+    }
+  ]
+}
+

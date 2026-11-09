@@ -1,0 +1,24 @@
+{
+  "version": "2026-09-03-v1",
+  "datasources": {
+    "default": {
+      "roles": {
+        "admin": {
+          "tables": "*",
+          "columns": "*",
+          "mask": {}
+        },
+        "analyst": {
+          "tables": "*",
+          "columns": "*",
+          "mask": { "name": "mask" }
+        },
+        "viewer": {
+          "tables": ["sales"],
+          "columns": { "sales": ["region"] },
+          "mask": {}
+        }
+      }
+    }
+  }
+}

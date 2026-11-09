@@ -1,0 +1,11 @@
+{
+  "version": "2026-08-28-v1",
+  "examples": [
+    {"question": "各区域销售额", "sql": "SELECT region, SUM(amount) AS total_amount FROM sales GROUP BY region", "tags": ["销售额", "区域", "聚合"]},
+    {"question": "客户所在区域", "sql": "SELECT name, region FROM customers", "tags": ["客户", "区域"]}
+  ],
+  "metrics": [
+    {"name": "销售额", "definition": "sales.amount 的 SUM，按查询粒度聚合；币种以数据源配置为准。", "dimensions": ["region", "sold_at"]}
+  ],
+  "relationships": []
+}
