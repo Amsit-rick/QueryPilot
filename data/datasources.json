@@ -47,6 +47,21 @@
       ]
     },
     {
+      "id": "postgres-main",
+      "name": "PostgreSQL 16 业务库",
+      "backend": "postgres",
+      "readonly": true,
+      "enabled_if_configured": true,
+      "allowed_tables": [
+        "customers",
+        "sales"
+      ],
+      "roles": [
+        "admin",
+        "analyst"
+      ]
+    },
+    {
       "id": "oracle-main",
       "name": "Oracle 19c 业务库",
       "backend": "oracle",
@@ -57,6 +72,36 @@
       "allowed_tables": [
         "CUSTOMERS",
         "SALES"
+      ],
+      "roles": [
+        "admin",
+        "analyst"
+      ]
+    },
+    {
+      "id": "sqlserver-main",
+      "name": "SQL Server 2022 业务库",
+      "backend": "sqlserver",
+      "readonly": true,
+      "enabled_if_configured": true,
+      "allowed_tables": [
+        "customers",
+        "sales"
+      ],
+      "roles": [
+        "admin",
+        "analyst"
+      ]
+    },
+    {
+      "id": "clickhouse-main",
+      "name": "ClickHouse 24.8 分析库",
+      "backend": "clickhouse",
+      "readonly": true,
+      "enabled_if_configured": true,
+      "allowed_tables": [
+        "customers",
+        "sales"
       ],
       "roles": [
         "admin",

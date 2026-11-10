@@ -137,6 +137,8 @@ Content-Type: application/json
 | SQL Server | 已完成真实实例连接器验收，成本估算能力仍需增强 |
 | ClickHouse | 已完成真实实例连接器验收；受数据库能力限制，关系元数据和成本估算不等同关系型数据库 |
 
+“支持的数据源类型”与“当前页面可选实例”是两层概念：后端只会返回数据源目录中已登记且连接配置完整的实例。设置 `START_ALL_DATASOURCES=true` 后，标准启动脚本会幂等启动 MySQL、PostgreSQL、SQL Server、ClickHouse，复用本机 Oracle 服务，并在 API 启动前对所有已配置数据源执行连接、Schema 和真实只读查询验证；任一实例未就绪时启动失败，不把不可用入口伪装成可查询数据源。SQLite、MySQL、PostgreSQL、Oracle、SQL Server、ClickHouse 均配置完成时，管理员和分析师页面会显示六项，viewer 仍只看到获授权的数据源。
+
 ## 质量与验证
 
 每次提交都会通过 GitHub Actions 执行：

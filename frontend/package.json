@@ -1,1 +1,1 @@
-{"scripts":{"dev":"vite --host 127.0.0.1","build":"vite build","test:e2e":"playwright test"},"dependencies":{"vue":"3.5.42","vue-router":"4.6.4"},"devDependencies":{"@playwright/test":"1.62.1","@vitejs/plugin-vue":"6.0.8","vite":"8.2.2"}}
+{"scripts":{"dev":"vite --host 127.0.0.1","build":"vite build","test:e2e":"playwright test"},"dependencies":{"vue":"3.5.42","vue-router":"4.6.4"},"devDependencies":{"@playwright/test":"1.62.1","@vitejs/plugin-vue":"6.0.8","vite":"^8.3.7"}}

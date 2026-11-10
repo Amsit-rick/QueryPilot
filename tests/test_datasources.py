@@ -62,6 +62,51 @@ def _configure_oracle(monkeypatch):
     monkeypatch.setattr(settings, "oracle_plan_password", "plan_password")
 
 
+def _configured_remote_datasource(backend):
+    return {
+        "id": f"{backend}-main",
+        "name": f"{backend} 业务库",
+        "backend": backend,
+        "readonly": True,
+        "enabled_if_configured": True,
+        "roles": ["admin", "analyst"],
+        "allowed_tables": ["sales", "customers"],
+    }
+
+
+def _configure_remote_backend(monkeypatch, backend):
+    if backend == "postgres":
+        monkeypatch.setattr(
+            settings,
+            "postgres_readonly_dsn",
+            "postgresql://reader:password@db.example:5432/query_agent",
+        )
+        return ["postgres_readonly_dsn"]
+    if backend == "sqlserver":
+        monkeypatch.setattr(settings, "sqlserver_host", "db.example")
+        monkeypatch.setattr(settings, "sqlserver_database", "query_agent")
+        monkeypatch.setattr(settings, "sqlserver_user", "reader")
+        monkeypatch.setattr(settings, "sqlserver_password", "password")
+        return [
+            "sqlserver_host",
+            "sqlserver_database",
+            "sqlserver_user",
+            "sqlserver_password",
+        ]
+    if backend == "clickhouse":
+        monkeypatch.setattr(settings, "clickhouse_host", "db.example")
+        monkeypatch.setattr(settings, "clickhouse_database", "query_agent")
+        monkeypatch.setattr(settings, "clickhouse_user", "reader")
+        monkeypatch.setattr(settings, "clickhouse_password", "password")
+        return [
+            "clickhouse_host",
+            "clickhouse_database",
+            "clickhouse_user",
+            "clickhouse_password",
+        ]
+    raise AssertionError(f"unsupported test backend: {backend}")
+
+
 def test_viewer_only_sees_sqlite():
     ids = [d["id"] for d in list_data_sources_for({"roles": ["viewer"]})]
     assert ids == ["sqlite-demo"]
@@ -117,6 +162,41 @@ def test_oracle_registry_preserves_owner_cost_and_table_options(monkeypatch, tmp
     _configure_oracle(monkeypatch)
 
     assert get_datasource("oracle-main") == oracle
+
+
+@pytest.mark.parametrize("backend", ["postgres", "sqlserver", "clickhouse"])
+def test_configured_remote_datasource_is_visible(monkeypatch, tmp_path, backend):
+    registry = tmp_path / "datasources.json"
+    datasource = _configured_remote_datasource(backend)
+    _write_registry(registry, datasource)
+    monkeypatch.setattr(settings, "datasources_path", str(registry))
+    _configure_remote_backend(monkeypatch, backend)
+
+    assert list_datasources() == [datasource]
+    assert [item["id"] for item in list_data_sources_for({"roles": ["admin"]})] == [
+        datasource["id"]
+    ]
+    assert [item["id"] for item in list_data_sources_for({"roles": ["analyst"]})] == [
+        datasource["id"]
+    ]
+    assert list_data_sources_for({"roles": ["viewer"]}) == []
+
+
+@pytest.mark.parametrize("backend", ["postgres", "sqlserver", "clickhouse"])
+def test_remote_datasource_is_hidden_when_configuration_is_incomplete(
+    monkeypatch, tmp_path, backend
+):
+    registry = tmp_path / "datasources.json"
+    datasource = _configured_remote_datasource(backend)
+    _write_registry(registry, datasource)
+    monkeypatch.setattr(settings, "datasources_path", str(registry))
+    required_settings = _configure_remote_backend(monkeypatch, backend)
+
+    for missing_setting in required_settings:
+        monkeypatch.setattr(settings, missing_setting, "")
+        assert list_datasources() == []
+        assert get_datasource(datasource["id"]) is None
+        _configure_remote_backend(monkeypatch, backend)
 
 
 def test_datasource_schema_endpoint(client):

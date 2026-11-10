@@ -1,16 +1,23 @@
 services:
   sqlserver:
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    image: mcr.microsoft.com/mssql/server:2022-latest@sha256:cf8f0ab2ebe61feec2eed2629061a07d247f791c2a8ddda74a4ac9f06a291718
     environment:
       ACCEPT_EULA: "Y"
       MSSQL_PID: "Developer"
+      MSSQL_MEMORY_LIMIT_MB: "${SQLSERVER_MEMORY_LIMIT_MB:-1024}"
       # Fail closed: the compose file has no password default, matching the
       # MySQL compose contract. Inject it from .env or the host secret store.
       MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD:?MSSQL_SA_PASSWORD must be set}"
     ports:
       - "127.0.0.1:${SQLSERVER_PORT:-1433}:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    mem_limit: 2g
     healthcheck:
       test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' || /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1'"]
       interval: 10s
       timeout: 5s
       retries: 20
+
+volumes:
+  sqlserver_data:

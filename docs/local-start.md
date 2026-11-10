@@ -33,6 +33,8 @@ scripts\start_local.cmd
 脚本会启动 MySQL、等待数据库 ready、执行本地交付包预检，再打开后端窗口和前端窗口。后端配置自动读取项目根目录的 `.env`，不需要每次手动执行 `set MYSQL_*`。
 若 `.env`、虚拟环境、前端依赖或 Docker 缺失，启动脚本会直接提示重新运行首次安装，不再打开必然失败的窗口。
 
+需要在同一页面使用全部已适配数据库时，将 `.env` 中的 `START_ALL_DATASOURCES` 设为 `true`，并完成 PostgreSQL、Oracle、SQL Server、ClickHouse 的连接配置。`start_local.cmd` 会调用 `scripts\start_all_datasources.cmd`；该脚本会幂等启动 MySQL、PostgreSQL、SQL Server、ClickHouse，复用本机 Oracle 服务，再运行 `verify_configured_datasources.py`。验证必须实际通过连接、Schema 和 `sales` 只读查询，API 才会启动。SQL Server 与 ClickHouse 占用内存较高，16GB 开发机应先停止无关项目容器，避免 Docker Engine 因同时恢复多组服务而重启。
+
 也可以单独运行只读预检（输出机器可读 JSON，不会显示密码或 Token）：
 
 ```cmd

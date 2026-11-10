@@ -87,7 +87,10 @@ test('可选择授权数据源并将选择结果用于查询', async ({ page }) 
     if (path.endsWith('/data-sources')) return route.fulfill({ json: [
       { id: 'sqlite-demo', name: 'SQLite 演示库', backend: 'sqlite', readonly: true },
       { id: 'mysql-main', name: 'MySQL 生产库', backend: 'mysql', readonly: true },
+      { id: 'postgres-main', name: 'PostgreSQL 16 业务库', backend: 'postgres', readonly: true },
       { id: 'oracle-main', name: 'Oracle 19c 业务库', backend: 'oracle', readonly: true },
+      { id: 'sqlserver-main', name: 'SQL Server 2022 业务库', backend: 'sqlserver', readonly: true },
+      { id: 'clickhouse-main', name: 'ClickHouse 24.8 分析库', backend: 'clickhouse', readonly: true },
     ] })
     if (path.endsWith('/query')) {
       queryPayload = request.postDataJSON()
@@ -102,13 +105,23 @@ test('可选择授权数据源并将选择结果用于查询', async ({ page }) 
   await page.getByRole('button', { name: '登录' }).click()
 
   const selector = page.getByRole('combobox', { name: '选择数据源' })
-  await expect(selector.locator('option')).toHaveText(['SQLite 演示库', 'MySQL 生产库', 'Oracle 19c 业务库'])
-  await selector.selectOption('oracle-main')
+  await expect(selector.locator('option')).toHaveText([
+    'SQLite 演示库',
+    'MySQL 生产库',
+    'PostgreSQL 16 业务库',
+    'Oracle 19c 业务库',
+    'SQL Server 2022 业务库',
+    'ClickHouse 24.8 分析库',
+  ])
+  for (const id of ['sqlite-demo', 'mysql-main', 'postgres-main', 'oracle-main', 'sqlserver-main', 'clickhouse-main']) {
+    await selector.selectOption(id)
+    await expect(selector).toHaveValue(id)
+  }
   await page.getByPlaceholder(/查询各区域销售额/).fill('查询销售额')
   await page.getByRole('button', { name: '执行查询' }).click()
 
-  await expect.poll(() => queryPayload?.datasource).toBe('oracle-main')
-  await expect(page.locator('.workspace-chip')).toHaveText('Oracle 19c 业务库')
+  await expect.poll(() => queryPayload?.datasource).toBe('clickhouse-main')
+  await expect(page.locator('.workspace-chip')).toHaveText('ClickHouse 24.8 分析库')
   await expect(page.getByRole('heading', { name: '查询完成' })).toBeVisible()
   await expect(page.locator('.result')).toContainText('1 行')
 })

@@ -25,9 +25,9 @@ if errorlevel 1 (
   exit /b 2
 )
 
-echo [0/5] Checking existing services...
+echo [0/6] Checking existing services...
 
-echo [1/5] Starting MySQL...
+echo [1/6] Starting MySQL...
 set "MYSQL_CONTAINER="
 for /f "delims=" %%I in ('docker compose -f docker-compose.mysql.yml ps --status running -q mysql 2^>nul') do set "MYSQL_CONTAINER=%%I"
 if defined MYSQL_CONTAINER (
@@ -42,7 +42,7 @@ if defined MYSQL_CONTAINER (
   )
 )
 
-echo [2/5] Waiting for MySQL readiness...
+echo [2/6] Waiting for MySQL readiness...
 set "MYSQL_READY=0"
 for /l %%I in (1,1,30) do (
   docker compose -f docker-compose.mysql.yml exec -T mysql mysqladmin ping -h localhost --silent >nul 2>&1
@@ -59,7 +59,7 @@ if "%MYSQL_READY%"=="0" (
   exit /b 1
 )
 
-echo [3/5] Configuring read-only query access and applying database migrations...
+echo [3/6] Configuring read-only query access and applying database migrations...
 docker compose -f docker-compose.mysql.yml exec -T mysql sh /docker-entrypoint-initdb.d/ZZ99-create-readonly-user.sh
 if errorlevel 1 (
   echo Failed to configure the dedicated MySQL read-only query account.
@@ -71,7 +71,18 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [4/5] Running local bundle preflight...
+set "START_ALL_DATASOURCES="
+for /f "tokens=1,* delims==" %%A in ('findstr /b "START_ALL_DATASOURCES=" ".env"') do set "START_ALL_DATASOURCES=%%B"
+if /I "%START_ALL_DATASOURCES%"=="true" (
+  echo [4/6] Starting and verifying all configured query datasources...
+  call scripts\start_all_datasources.cmd
+  if errorlevel 1 (
+    echo Configured query datasources did not become ready. The API was not started.
+    exit /b 1
+  )
+)
+
+echo [5/6] Running local bundle preflight...
 .venv\Scripts\python.exe scripts\verify_local_bundle.py
 if errorlevel 1 (
   echo Local preflight failed. Resolve the blocking checks above before starting services.
@@ -90,7 +101,7 @@ if /I "%LOCAL_AUTH_ENABLED%"=="true" if "%METRICS_TOKEN%"=="" if "%LOCAL_METRICS
   echo Generated a temporary local metrics token for this launch.
 )
 
-echo [5/5] Starting backend on http://127.0.0.1:8000 ...
+echo [6/6] Starting backend on http://127.0.0.1:8000 ...
 start "Query Pilot API" cmd /k ".venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000"
 
 echo Starting frontend on http://127.0.0.1:5173 ...

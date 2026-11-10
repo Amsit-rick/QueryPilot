@@ -59,6 +59,28 @@ def _datasource_is_enabled(ds: dict) -> bool:
         return True
 
     backend = str(ds.get("backend", "")).lower()
+    if backend in {"postgres", "postgresql"}:
+        return _setting_is_configured("postgres_readonly_dsn")
+    if backend == "sqlserver":
+        return all(
+            _setting_is_configured(name)
+            for name in (
+                "sqlserver_host",
+                "sqlserver_database",
+                "sqlserver_user",
+                "sqlserver_password",
+            )
+        )
+    if backend == "clickhouse":
+        return all(
+            _setting_is_configured(name)
+            for name in (
+                "clickhouse_host",
+                "clickhouse_database",
+                "clickhouse_user",
+                "clickhouse_password",
+            )
+        )
     if backend != "oracle":
         return False
 
