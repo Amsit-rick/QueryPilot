@@ -48,8 +48,29 @@ def load_registry() -> dict:
     return _default_registry()
 
 
+def _setting_is_configured(name: str) -> bool:
+    value = getattr(settings, name, "")
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _datasource_is_enabled(ds: dict) -> bool:
+    """Fail closed for catalog entries that depend on external credentials."""
+    if not ds.get("enabled_if_configured", False):
+        return True
+
+    backend = str(ds.get("backend", "")).lower()
+    if backend != "oracle":
+        return False
+
+    required_settings = ["oracle_dsn", "oracle_user", "oracle_password"]
+    if ds.get("cost_estimate_enabled", False):
+        required_settings.extend(["oracle_plan_user", "oracle_plan_password"])
+    return all(_setting_is_configured(name) for name in required_settings)
+
+
 def list_datasources() -> list[dict]:
-    return load_registry().get("datasources", [])
+    datasources = load_registry().get("datasources", [])
+    return [ds for ds in datasources if isinstance(ds, dict) and _datasource_is_enabled(ds)]
 
 
 def _public_view(ds: dict) -> dict:

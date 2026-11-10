@@ -45,6 +45,23 @@
         "admin",
         "analyst"
       ]
+    },
+    {
+      "id": "oracle-main",
+      "name": "Oracle 19c 业务库",
+      "backend": "oracle",
+      "schema_owner": "QUERYPILOT_OWNER",
+      "cost_estimate_enabled": true,
+      "readonly": true,
+      "enabled_if_configured": true,
+      "allowed_tables": [
+        "CUSTOMERS",
+        "SALES"
+      ],
+      "roles": [
+        "admin",
+        "analyst"
+      ]
     }
   ]
 }

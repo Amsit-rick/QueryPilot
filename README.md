@@ -29,7 +29,7 @@ Query Pilot 围绕这些问题构建了完整的 Agent 执行与治理链路。
 | Durable Agent | DataTask 持久化任务、步骤、事件和结果资产；Redis Checkpoint、fencing token、幂等请求、断线续传、恢复与回放 |
 | 多轮与分支分析 | 使用有界上下文继续追问；历史信息按当前 Schema 权限重新过滤；支持从任意成功轮次创建独立分析分支 |
 | 结果质量反思 | 确定性规则与可选语义 Critic 独立判定接受、澄清、审批或修复；最多两次修复，避免无限循环 |
-| 扩展能力 | MySQL、PostgreSQL、SQLite；Oracle、SQL Server、ClickHouse 实验连接器；只读 MCP 2.x 服务与版本化 Skill 治理 |
+| 扩展能力 | MySQL、PostgreSQL、SQLite、Oracle、SQL Server、ClickHouse 多数据源接入；只读 MCP 2.x 服务与版本化 Skill 治理 |
 
 ## 工作链路
 
@@ -123,10 +123,19 @@ Content-Type: application/json
 | Agent / LLM | LangChain、LangGraph、DeepSeek / OpenAI 兼容模型 |
 | 后端 | Python 3.12、FastAPI、Pydantic |
 | SQL 治理 | SQLGlot、参数绑定、方言化 EXPLAIN |
-| 数据 | MySQL、PostgreSQL、SQLite、Redis |
-| 实验连接器 | Oracle、SQL Server、ClickHouse |
+| 数据源 | MySQL、PostgreSQL、SQLite、Oracle、SQL Server、ClickHouse |
+| 状态与队列 | Redis |
 | 前端 | Vue 3、Vue Router、ECharts |
 | 工程化 | Docker Compose、Pytest、Playwright、Prometheus、Grafana、GitHub Actions |
+
+### 数据库支持状态
+
+| 数据库 | 当前状态 |
+|---|---|
+| MySQL、PostgreSQL、SQLite | 主支持数据源，已接入 Schema、只读查询、权限和 SQL 安全链路 |
+| Oracle 19c | 已完成真实实例完整验收，覆盖连接、Schema、主外键、参数绑定、只读拒绝和独立 Planner 账号 EXPLAIN；配置完整时自动出现在页面数据源列表 |
+| SQL Server | 已完成真实实例连接器验收，成本估算能力仍需增强 |
+| ClickHouse | 已完成真实实例连接器验收；受数据库能力限制，关系元数据和成本估算不等同关系型数据库 |
 
 ## 质量与验证
 
@@ -161,6 +170,6 @@ Content-Type: application/json
 ## 能力边界
 
 - 仓库内业务数据和规模评测数据为可重复生成的合成数据，不能代替真实业务负责人验收；
-- Oracle、SQL Server、ClickHouse 已完成本地连接器验收，但仍作为实验能力，生产使用前需要目标环境重新校准；
+- Oracle 19c 已完成真实实例完整验收；SQL Server、ClickHouse 已完成真实实例连接器验收但仍有上述能力边界。所有数据库在生产使用前都需要针对目标实例重新校准权限、超时和成本阈值；
 - Embedding、外部模型、Redis 高可用、告警通知和数据库成本阈值需要在企业基础设施中单独验收；
 - 生产环境应使用 Vault/KMS、企业网关、独立只读数据库账号、集中日志和正式备份策略，不能直接复用本地 `.env`。

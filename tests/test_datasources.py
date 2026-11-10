@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -7,7 +9,9 @@ from app.config import settings
 from app.datasources import (
     datasource_schema,
     execute_datasource,
+    get_datasource,
     list_data_sources_for,
+    list_datasources,
     test_connection as check_connection,
 )
 
@@ -29,6 +33,35 @@ def _override(identity):
     main_module.app.dependency_overrides[require_identity] = lambda: identity
 
 
+def _write_registry(path, *datasources):
+    path.write_text(
+        json.dumps({"version": "test", "datasources": list(datasources)}),
+        encoding="utf-8",
+    )
+
+
+def _oracle_datasource():
+    return {
+        "id": "oracle-main",
+        "name": "Oracle 19c 业务库",
+        "backend": "oracle",
+        "schema_owner": "QUERYPILOT_OWNER",
+        "cost_estimate_enabled": True,
+        "readonly": True,
+        "enabled_if_configured": True,
+        "roles": ["admin", "analyst"],
+        "allowed_tables": ["CUSTOMERS", "SALES"],
+    }
+
+
+def _configure_oracle(monkeypatch):
+    monkeypatch.setattr(settings, "oracle_dsn", "db.example:1521/ORCLPDB1")
+    monkeypatch.setattr(settings, "oracle_user", "query_user")
+    monkeypatch.setattr(settings, "oracle_password", "query_password")
+    monkeypatch.setattr(settings, "oracle_plan_user", "plan_user")
+    monkeypatch.setattr(settings, "oracle_plan_password", "plan_password")
+
+
 def test_viewer_only_sees_sqlite():
     ids = [d["id"] for d in list_data_sources_for({"roles": ["viewer"]})]
     assert ids == ["sqlite-demo"]
@@ -37,6 +70,53 @@ def test_viewer_only_sees_sqlite():
 def test_analyst_and_admin_see_both():
     assert [d["id"] for d in list_data_sources_for({"roles": ["analyst"]})] == ["sqlite-demo", "mysql-main"]
     assert [d["id"] for d in list_data_sources_for({"roles": ["admin"]})] == ["sqlite-demo", "mysql-main"]
+
+
+def test_configured_oracle_is_visible_to_admin_and_analyst(monkeypatch, tmp_path):
+    registry = tmp_path / "datasources.json"
+    _write_registry(registry, _oracle_datasource())
+    monkeypatch.setattr(settings, "datasources_path", str(registry))
+    _configure_oracle(monkeypatch)
+
+    assert [item["id"] for item in list_datasources()] == ["oracle-main"]
+    assert [item["id"] for item in list_data_sources_for({"roles": ["admin"]})] == ["oracle-main"]
+    assert [item["id"] for item in list_data_sources_for({"roles": ["analyst"]})] == ["oracle-main"]
+
+
+@pytest.mark.parametrize(
+    "missing_setting",
+    ["oracle_dsn", "oracle_user", "oracle_password", "oracle_plan_user", "oracle_plan_password"],
+)
+def test_oracle_is_hidden_when_required_configuration_is_incomplete(
+    monkeypatch, tmp_path, missing_setting
+):
+    registry = tmp_path / "datasources.json"
+    _write_registry(registry, _oracle_datasource())
+    monkeypatch.setattr(settings, "datasources_path", str(registry))
+    _configure_oracle(monkeypatch)
+    monkeypatch.setattr(settings, missing_setting, "")
+
+    assert list_datasources() == []
+    assert get_datasource("oracle-main") is None
+
+
+def test_configured_oracle_remains_hidden_from_viewer(monkeypatch, tmp_path):
+    registry = tmp_path / "datasources.json"
+    _write_registry(registry, _oracle_datasource())
+    monkeypatch.setattr(settings, "datasources_path", str(registry))
+    _configure_oracle(monkeypatch)
+
+    assert list_data_sources_for({"roles": ["viewer"]}) == []
+
+
+def test_oracle_registry_preserves_owner_cost_and_table_options(monkeypatch, tmp_path):
+    registry = tmp_path / "datasources.json"
+    oracle = _oracle_datasource()
+    _write_registry(registry, oracle)
+    monkeypatch.setattr(settings, "datasources_path", str(registry))
+    _configure_oracle(monkeypatch)
+
+    assert get_datasource("oracle-main") == oracle
 
 
 def test_datasource_schema_endpoint(client):

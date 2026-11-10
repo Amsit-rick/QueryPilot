@@ -87,6 +87,7 @@ test('可选择授权数据源并将选择结果用于查询', async ({ page }) 
     if (path.endsWith('/data-sources')) return route.fulfill({ json: [
       { id: 'sqlite-demo', name: 'SQLite 演示库', backend: 'sqlite', readonly: true },
       { id: 'mysql-main', name: 'MySQL 生产库', backend: 'mysql', readonly: true },
+      { id: 'oracle-main', name: 'Oracle 19c 业务库', backend: 'oracle', readonly: true },
     ] })
     if (path.endsWith('/query')) {
       queryPayload = request.postDataJSON()
@@ -101,13 +102,13 @@ test('可选择授权数据源并将选择结果用于查询', async ({ page }) 
   await page.getByRole('button', { name: '登录' }).click()
 
   const selector = page.getByRole('combobox', { name: '选择数据源' })
-  await expect(selector.locator('option')).toHaveText(['SQLite 演示库', 'MySQL 生产库'])
-  await selector.selectOption('mysql-main')
+  await expect(selector.locator('option')).toHaveText(['SQLite 演示库', 'MySQL 生产库', 'Oracle 19c 业务库'])
+  await selector.selectOption('oracle-main')
   await page.getByPlaceholder(/查询各区域销售额/).fill('查询销售额')
   await page.getByRole('button', { name: '执行查询' }).click()
 
-  await expect.poll(() => queryPayload?.datasource).toBe('mysql-main')
-  await expect(page.locator('.workspace-chip')).toHaveText('MySQL 生产库')
+  await expect.poll(() => queryPayload?.datasource).toBe('oracle-main')
+  await expect(page.locator('.workspace-chip')).toHaveText('Oracle 19c 业务库')
   await expect(page.getByRole('heading', { name: '查询完成' })).toBeVisible()
   await expect(page.locator('.result')).toContainText('1 行')
 })
