@@ -4,6 +4,14 @@
 
 技术栈：FastAPI · Vue 3 · MySQL / PostgreSQL / SQLite（Oracle、SQL Server、ClickHouse 为实验连接器）· Redis · LangGraph / LangChain 可切换编排 · Pytest · Playwright。
 
+## How it works
+
+<p align="center">
+  <img src="docs/query-pilot-agent-flow.svg" alt="Query Pilot Agent 工作链路：从自然语言问题到安全 SQL 执行、反思修复、任务持久化与结果交付" width="100%" />
+</p>
+
+图中的流光和移动箭头表示当前执行方向；系统启用“减少动态效果”时会自动降级为静态箭头。完整的安全边界、任务恢复和反思机制分别见 [`docs/query-cost-and-relationships.md`](docs/query-cost-and-relationships.md)、[`docs/task-recovery-runbook.md`](docs/task-recovery-runbook.md) 和 [`docs/reflection-mechanism-roadmap.md`](docs/reflection-mechanism-roadmap.md)。
+
 ## Windows 本地运行
 
 新电脑先安装 Python 3.12、Node.js 22 和 Docker Desktop，然后在 CMD 执行一次：

@@ -1,0 +1,252 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 780" role="img" aria-labelledby="title desc">
+  <title id="title">Query Pilot Agent 工作链路</title>
+  <desc id="desc">从自然语言问题、意图和 Skill 路由、Schema 混合召回，到 SQL 生成、安全校验、成本门禁、审批、只读数据网关、反思修复、结果输出和任务持久化的完整链路。</desc>
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#0f172a" flood-opacity="0.10"/>
+    </filter>
+    <linearGradient id="agentFill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e0f2fe"/>
+      <stop offset="1" stop-color="#ede9fe"/>
+    </linearGradient>
+    <linearGradient id="outputFill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#dcfce7"/>
+      <stop offset="1" stop-color="#ecfccb"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" class="arrow-head"/>
+    </marker>
+    <marker id="arrowMuted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" class="arrow-muted"/>
+    </marker>
+  </defs>
+
+  <style>
+    .canvas { fill: #f8fafc; }
+    .frame { fill: none; stroke: #dbe3ef; stroke-width: 1.5; }
+    .lane { fill: #ffffff; stroke: #e2e8f0; stroke-width: 1.2; }
+    .lane-title { fill: #64748b; font: 700 12px Inter, "Segoe UI", "Microsoft YaHei", sans-serif; letter-spacing: 1.6px; }
+    .node { fill: #ffffff; stroke: #94a3b8; stroke-width: 1.4; }
+    .node-accent { fill: #eef2ff; stroke: #818cf8; stroke-width: 1.7; }
+    .node-agent { fill: url(#agentFill); stroke: #2563eb; stroke-width: 2.2; }
+    .node-security { fill: #fff7ed; stroke: #f59e0b; stroke-width: 1.7; }
+    .node-output { fill: url(#outputFill); stroke: #22c55e; stroke-width: 1.8; }
+    .node-durable { fill: #f1f5f9; stroke: #64748b; stroke-width: 1.5; }
+    .node-title { fill: #0f172a; font: 700 16px Inter, "Segoe UI", "Microsoft YaHei", sans-serif; text-anchor: middle; }
+    .node-sub { fill: #475569; font: 500 12px Inter, "Segoe UI", "Microsoft YaHei", sans-serif; text-anchor: middle; }
+    .badge { fill: #ffffff; stroke: #cbd5e1; stroke-width: 1; }
+    .badge-text { fill: #475569; font: 600 11px Inter, "Segoe UI", "Microsoft YaHei", sans-serif; text-anchor: middle; }
+    .edge { fill: none; stroke: #64748b; stroke-width: 2.1; marker-end: url(#arrow); }
+    .edge-muted { fill: none; stroke: #94a3b8; stroke-width: 1.7; marker-end: url(#arrowMuted); stroke-dasharray: 4 5; }
+    .flow { fill: none; stroke: #4f46e5; stroke-width: 3.2; stroke-linecap: round; stroke-dasharray: 7 15; animation: flow 1.35s linear infinite; pointer-events: none; }
+    .flow-cyan { stroke: #0891b2; }
+    .flow-green { stroke: #16a34a; }
+    .flow-amber { stroke: #d97706; }
+    .arrow-head { fill: #475569; }
+    .arrow-muted { fill: #94a3b8; }
+    .moving-arrow { fill: #4f46e5; filter: drop-shadow(0 0 3px rgba(79, 70, 229, .35)); }
+    .moving-arrow-cyan { fill: #0891b2; }
+    .moving-arrow-green { fill: #16a34a; }
+    .db-body { fill: #eef2ff; stroke: #6366f1; stroke-width: 1.8; }
+    .db-line { fill: none; stroke: #6366f1; stroke-width: 1.8; }
+    .db-title { fill: #0f172a; font: 700 15px Inter, "Segoe UI", "Microsoft YaHei", sans-serif; text-anchor: middle; }
+    .db-sub { fill: #475569; font: 500 11px Inter, "Segoe UI", "Microsoft YaHei", sans-serif; text-anchor: middle; }
+    .label-bg { fill: #f8fafc; fill-opacity: .94; }
+    .edge-label { fill: #475569; font: 600 11px Inter, "Segoe UI", "Microsoft YaHei", sans-serif; text-anchor: middle; }
+    .status-dot { fill: #22c55e; animation: pulse 1.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+    @keyframes flow { to { stroke-dashoffset: -44; } }
+    @keyframes pulse { 0%, 100% { opacity: .45; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.25); } }
+
+    @media (prefers-color-scheme: dark) {
+      .canvas { fill: #0b1220; }
+      .frame { stroke: #263449; }
+      .lane { fill: #101827; stroke: #263449; }
+      .lane-title { fill: #94a3b8; }
+      .node { fill: #111c2d; stroke: #64748b; }
+      .node-accent { fill: #1e1b4b; stroke: #818cf8; }
+      .node-agent { fill: #172554; stroke: #60a5fa; }
+      .node-security { fill: #3b260c; stroke: #f59e0b; }
+      .node-output { fill: #12351f; stroke: #4ade80; }
+      .node-durable { fill: #172033; stroke: #64748b; }
+      .node-title, .db-title { fill: #f8fafc; }
+      .node-sub, .db-sub, .edge-label, .badge-text { fill: #cbd5e1; }
+      .badge, .label-bg { fill: #0f172a; stroke: #334155; }
+      .db-body { fill: #1e1b4b; stroke: #818cf8; }
+      .db-line { stroke: #818cf8; }
+      .edge { stroke: #94a3b8; }
+      .arrow-head { fill: #94a3b8; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .flow, .status-dot { animation: none; }
+      .moving-arrow { display: none; }
+    }
+  </style>
+
+  <rect class="canvas" width="1440" height="780" rx="24"/>
+  <rect class="frame" x="18" y="18" width="1404" height="744" rx="20"/>
+
+  <text x="52" y="58" class="node-title" style="font-size:24px;text-anchor:start">Query Pilot · Agent 工作链路</text>
+  <text x="52" y="84" class="node-sub" style="font-size:13px;text-anchor:start">LLM 负责候选生成，确定性治理层决定能否执行；每一步都可恢复、可审计、可回放。</text>
+  <circle cx="1365" cy="56" r="5" class="status-dot"/>
+  <text x="1348" y="61" class="badge-text" style="text-anchor:end">DURABLE</text>
+
+  <rect class="lane" x="42" y="108" width="800" height="456" rx="18"/>
+  <rect class="lane" x="862" y="108" width="536" height="456" rx="18"/>
+  <rect class="lane" x="42" y="584" width="1356" height="150" rx="18"/>
+  <text x="66" y="139" class="lane-title">UNDERSTAND &amp; PLAN</text>
+  <text x="886" y="139" class="lane-title">GOVERN &amp; EXECUTE</text>
+  <text x="66" y="615" class="lane-title">DURABILITY &amp; OUTPUT</text>
+
+  <!-- Main planning nodes -->
+  <g filter="url(#shadow)">
+    <rect class="node" x="72" y="270" width="150" height="82" rx="12"/>
+    <text class="node-title" x="147" y="303">用户问题</text>
+    <text class="node-sub" x="147" y="329">自然语言 · 多轮追问</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect class="node-accent" x="270" y="255" width="168" height="112" rx="12"/>
+    <text class="node-title" x="354" y="292">意图 / Skill 路由</text>
+    <text class="node-sub" x="354" y="319">简单查询 · 复杂分析</text>
+    <text class="node-sub" x="354" y="340">版本灰度 · 稳定分桶</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect class="node-accent" x="486" y="236" width="182" height="150" rx="12"/>
+    <text class="node-title" x="577" y="274">Schema 混合召回</text>
+    <text class="node-sub" x="577" y="301">BM25 · Embedding</text>
+    <text class="node-sub" x="577" y="322">字段值 · 指标口径</text>
+    <text class="node-sub" x="577" y="343">主外键 · 关系图补全</text>
+    <rect class="badge" x="526" y="354" width="102" height="22" rx="11"/>
+    <text class="badge-text" x="577" y="369">权限过滤后注入</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect class="node-agent" x="716" y="250" width="100" height="122" rx="18"/>
+    <circle cx="766" cy="278" r="8" class="status-dot"/>
+    <text class="node-title" x="766" y="311">LangGraph</text>
+    <text class="node-title" x="766" y="334">Agent</text>
+    <text class="node-sub" x="766" y="356">有界状态机</text>
+  </g>
+
+  <!-- Governance and execution nodes -->
+  <g filter="url(#shadow)">
+    <rect class="node-accent" x="894" y="160" width="176" height="78" rx="12"/>
+    <text class="node-title" x="982" y="192">结构化 SQL 生成</text>
+    <text class="node-sub" x="982" y="216">SQL 模板 + 命名参数</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect class="node-security" x="1094" y="150" width="180" height="98" rx="12"/>
+    <text class="node-title" x="1184" y="183">SQLGlot 安全校验</text>
+    <text class="node-sub" x="1184" y="207">只读 AST · 表字段白名单</text>
+    <text class="node-sub" x="1184" y="227">参数绑定 · LIMIT · 风险语法</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect class="node-security" x="1094" y="286" width="180" height="98" rx="12"/>
+    <text class="node-title" x="1184" y="318">成本与审批门禁</text>
+    <text class="node-sub" x="1184" y="342">EXPLAIN · 超时 · 扫描量</text>
+    <text class="node-sub" x="1184" y="362">敏感字段 → HITL</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect class="node-accent" x="1098" y="422" width="172" height="92" rx="12"/>
+    <text class="node-title" x="1184" y="455">只读 Data Gateway</text>
+    <text class="node-sub" x="1184" y="480">统一方言 · 租户隔离</text>
+    <text class="node-sub" x="1184" y="499">查询账号无 DDL / DML</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <path class="db-body" d="M1302 430 C1302 414 1324 402 1350 402 C1376 402 1398 414 1398 430 L1398 498 C1398 514 1376 526 1350 526 C1324 526 1302 514 1302 498 Z"/>
+    <ellipse class="db-line" cx="1350" cy="430" rx="48" ry="28"/>
+    <text class="db-title" x="1350" y="457">企业数据源</text>
+    <text class="db-sub" x="1350" y="478">MySQL · PostgreSQL</text>
+    <text class="db-sub" x="1350" y="495">SQLite · Oracle</text>
+    <text class="db-sub" x="1350" y="512">SQL Server · ClickHouse</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect class="node" x="890" y="348" width="178" height="118" rx="12"/>
+    <text class="node-title" x="979" y="382">结果质量反思</text>
+    <text class="node-sub" x="979" y="407">规则验证 · 语义 Critic</text>
+    <text class="node-sub" x="979" y="428">接受 / 澄清 / 修复 / 审批</text>
+    <rect class="badge" x="923" y="438" width="112" height="20" rx="10"/>
+    <text class="badge-text" x="979" y="452">最多 2 次修复</text>
+  </g>
+
+  <!-- Durable and output nodes -->
+  <g filter="url(#shadow)">
+    <rect class="node-durable" x="254" y="634" width="410" height="70" rx="12"/>
+    <text class="node-title" x="459" y="662">DataTask · Redis Checkpoint · Audit Trace</text>
+    <text class="node-sub" x="459" y="686">幂等请求 · fencing · 暂停恢复 · 分支回放 · 脱敏审计</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect class="node-output" x="782" y="625" width="374" height="88" rx="14"/>
+    <text class="node-title" x="969" y="658">可交付结果</text>
+    <text class="node-sub" x="969" y="682">答案 · SQL · 表格 · 图表 · CSV · 可复用资产</text>
+  </g>
+
+  <!-- Base connectors -->
+  <path id="p1" class="edge" d="M222 311 H258"/>
+  <path id="p2" class="edge" d="M438 311 H474"/>
+  <path id="p3" class="edge" d="M668 311 H704"/>
+  <path id="p4" class="edge" d="M816 288 C850 288 852 199 882 199"/>
+  <path id="p5" class="edge" d="M1070 199 H1082"/>
+  <path id="p6" class="edge" d="M1184 248 V274"/>
+  <path id="p7" class="edge" d="M1184 384 V410"/>
+  <path id="p8" class="edge" d="M1270 468 H1290"/>
+  <path id="p9" class="edge" d="M1302 490 C1220 550 1080 535 1050 466"/>
+  <path id="p10" class="edge" d="M890 407 C846 407 840 355 816 348"/>
+  <path id="p11" class="edge" d="M979 348 C979 294 982 268 982 250"/>
+  <path id="p12" class="edge" d="M766 372 V592 C766 614 792 669 770 669 H676"/>
+  <path id="p13" class="edge" d="M816 336 C852 336 850 669 770 669 H770" style="visibility:hidden"/>
+  <path id="p14" class="edge" d="M816 336 C858 336 844 669 770 669 H770 M664 669 H770"/>
+  <path id="p15" class="edge-muted" d="M716 348 C660 410 590 568 520 622"/>
+
+  <!-- Animated flow overlays -->
+  <path class="flow" d="M222 311 H258"/>
+  <path class="flow" d="M438 311 H474" style="animation-delay:-.25s"/>
+  <path class="flow" d="M668 311 H704" style="animation-delay:-.5s"/>
+  <path class="flow flow-cyan" d="M816 288 C850 288 852 199 882 199"/>
+  <path class="flow flow-amber" d="M1070 199 H1082 M1184 248 V274 M1184 384 V410"/>
+  <path class="flow flow-cyan" d="M1270 468 H1290"/>
+  <path class="flow" d="M1302 490 C1220 550 1080 535 1050 466"/>
+  <path class="flow" d="M890 407 C846 407 840 355 816 348"/>
+  <path class="flow" d="M979 348 C979 294 982 268 982 250" style="animation-delay:-.7s"/>
+  <path class="flow flow-green" d="M816 336 C858 336 844 669 770 669 H676"/>
+  <path class="flow flow-cyan" d="M716 348 C660 410 590 568 520 622" style="stroke-width:2.4;animation-delay:-.4s"/>
+
+  <!-- Moving arrow particles -->
+  <polygon class="moving-arrow" points="-7,-5 7,0 -7,5">
+    <animateMotion dur="1.4s" repeatCount="indefinite" rotate="auto" path="M222 311 H258"/>
+  </polygon>
+  <polygon class="moving-arrow moving-arrow-cyan" points="-7,-5 7,0 -7,5">
+    <animateMotion dur="2s" repeatCount="indefinite" rotate="auto" path="M816 288 C850 288 852 199 882 199"/>
+  </polygon>
+  <polygon class="moving-arrow" points="-7,-5 7,0 -7,5">
+    <animateMotion dur="2.8s" repeatCount="indefinite" rotate="auto" path="M1302 490 C1220 550 1080 535 1050 466"/>
+  </polygon>
+  <polygon class="moving-arrow moving-arrow-green" points="-7,-5 7,0 -7,5">
+    <animateMotion dur="2.6s" repeatCount="indefinite" rotate="auto" path="M816 336 C858 336 844 669 770 669 H676"/>
+  </polygon>
+
+  <!-- Connector labels -->
+  <g>
+    <rect class="label-bg" x="828" y="228" width="72" height="22" rx="5"/>
+    <text class="edge-label" x="864" y="243">generate</text>
+    <rect class="label-bg" x="1148" y="257" width="72" height="22" rx="5"/>
+    <text class="edge-label" x="1184" y="272">validated</text>
+    <rect class="label-bg" x="1061" y="520" width="102" height="22" rx="5"/>
+    <text class="edge-label" x="1112" y="535">rows / error</text>
+    <rect class="label-bg" x="829" y="377" width="64" height="22" rx="5"/>
+    <text class="edge-label" x="861" y="392">reflect</text>
+    <rect class="label-bg" x="938" y="274" width="88" height="22" rx="5"/>
+    <text class="edge-label" x="982" y="289">repair SQL</text>
+    <rect class="label-bg" x="696" y="492" width="86" height="22" rx="5"/>
+    <text class="edge-label" x="739" y="507">every step</text>
+    <rect class="label-bg" x="815" y="641" width="92" height="22" rx="5"/>
+    <text class="edge-label" x="861" y="656">final result</text>
+  </g>
+</svg>
