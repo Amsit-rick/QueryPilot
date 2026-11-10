@@ -200,9 +200,7 @@
   <path id="p9" class="edge" d="M1302 490 C1220 550 1080 535 1050 466"/>
   <path id="p10" class="edge" d="M890 407 C846 407 840 355 816 348"/>
   <path id="p11" class="edge" d="M979 348 C979 294 982 268 982 250"/>
-  <path id="p12" class="edge" d="M766 372 V592 C766 614 792 669 770 669 H676"/>
-  <path id="p13" class="edge" d="M816 336 C852 336 850 669 770 669 H770" style="visibility:hidden"/>
-  <path id="p14" class="edge" d="M816 336 C858 336 844 669 770 669 H770 M664 669 H770"/>
+  <path id="p14" class="edge" d="M664 669 H770"/>
   <path id="p15" class="edge-muted" d="M716 348 C660 410 590 568 520 622"/>
 
   <!-- Animated flow overlays -->
@@ -215,7 +213,7 @@
   <path class="flow" d="M1302 490 C1220 550 1080 535 1050 466"/>
   <path class="flow" d="M890 407 C846 407 840 355 816 348"/>
   <path class="flow" d="M979 348 C979 294 982 268 982 250" style="animation-delay:-.7s"/>
-  <path class="flow flow-green" d="M816 336 C858 336 844 669 770 669 H676"/>
+  <path class="flow flow-green" d="M664 669 H770"/>
   <path class="flow flow-cyan" d="M716 348 C660 410 590 568 520 622" style="stroke-width:2.4;animation-delay:-.4s"/>
 
   <!-- Moving arrow particles -->
@@ -229,7 +227,7 @@
     <animateMotion dur="2.8s" repeatCount="indefinite" rotate="auto" path="M1302 490 C1220 550 1080 535 1050 466"/>
   </polygon>
   <polygon class="moving-arrow moving-arrow-green" points="-7,-5 7,0 -7,5">
-    <animateMotion dur="2.6s" repeatCount="indefinite" rotate="auto" path="M816 336 C858 336 844 669 770 669 H676"/>
+    <animateMotion dur="1.8s" repeatCount="indefinite" rotate="auto" path="M664 669 H770"/>
   </polygon>
 
   <!-- Connector labels -->
@@ -246,7 +244,7 @@
     <text class="edge-label" x="982" y="289">repair SQL</text>
     <rect class="label-bg" x="696" y="492" width="86" height="22" rx="5"/>
     <text class="edge-label" x="739" y="507">every step</text>
-    <rect class="label-bg" x="815" y="641" width="92" height="22" rx="5"/>
-    <text class="edge-label" x="861" y="656">final result</text>
+    <rect class="label-bg" x="671" y="641" width="92" height="22" rx="5"/>
+    <text class="edge-label" x="717" y="656">final result</text>
   </g>
 </svg>
