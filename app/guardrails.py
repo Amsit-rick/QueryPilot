@@ -33,6 +33,16 @@ SAFE_QUERY_FUNCTIONS = {
     # DATE (TsOrDsToDate). It is a pure value conversion with no I/O, so it must
     # stay allowed; without it the common "monthly trend" question is rejected.
     "TS_OR_DS_TO_DATE",
+    # Pure date/time formatting and bucketing functions normalized by SQLGlot
+    # across the supported database dialects. These perform no file, network,
+    # session or stored-procedure operations and are safe inside a read-only
+    # SELECT. Unknown functions remain denied by default.
+    "TS_OR_DS_TO_TIMESTAMP",  # SQLite strftime input normalization
+    "TIMESTAMP_TRUNC",        # PostgreSQL date_trunc
+    "DATE_TRUNC",             # Oracle TRUNC(date, unit)
+    "TO_CHAR",                # Oracle date formatting
+    "DATE_FROM_PARTS",        # SQL Server DATEFROMPARTS
+    "TOSTARTOFMONTH",         # ClickHouse toStartOfMonth
 }
 
 # Kept as an early, explicit diagnostic before parsing. The function allowlist
@@ -48,6 +58,10 @@ _DIALECTS = {
     "mysql": "mysql",
     "postgres": "postgres",
     "postgresql": "postgres",
+    "oracle": "oracle",
+    "sqlserver": "tsql",
+    "tsql": "tsql",
+    "clickhouse": "clickhouse",
 }
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -57,10 +71,18 @@ def validation_dialect(backend: str | None) -> str:
     return _DIALECTS.get(str(backend or "sqlite").lower(), "sqlite")
 
 
-def _function_name(function: exp.Func) -> str:
+def query_function_name(function: exp.Func) -> str:
     if isinstance(function, exp.Anonymous):
         return str(function.name or "").upper()
     return str(function.sql_name() or "").upper()
+
+
+def is_safe_query_function(function: exp.Func) -> bool:
+    """Return whether a parsed SQL function is explicitly safe to execute."""
+    if isinstance(function, exp.Connector):
+        return True
+    name = query_function_name(function)
+    return bool(name) and name.casefold() not in BLOCKED_FUNCTIONS and name in SAFE_QUERY_FUNCTIONS
 
 
 def validate_sql(
@@ -151,10 +173,8 @@ def validate_sql(
         raise QueryError("E_CARTESIAN_JOIN", "JOIN 必须包含 ON 或 USING 条件")
 
     for function in tree.find_all(exp.Func):
-        if isinstance(function, exp.Connector):
-            continue
-        name = _function_name(function)
-        if not name or name.casefold() in BLOCKED_FUNCTIONS or name not in SAFE_QUERY_FUNCTIONS:
+        name = query_function_name(function)
+        if not is_safe_query_function(function):
             raise QueryError("E_READONLY_VIOLATION", f"函数未在安全白名单中：{name or 'UNKNOWN'}")
 
     def source_columns(source: exp.Expression | Scope) -> set[str]:

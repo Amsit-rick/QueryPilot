@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-26-v1",
+  "version": "2026-11-10-v2",
   "schema": {
     "sales": ["id", "region", "amount", "sold_at"],
     "customers": ["id", "name", "region"]
@@ -10,6 +10,11 @@
     {"id": "safe-03", "dialect": "postgres", "sql": "SELECT DATE(sold_at), AVG(amount) FROM sales GROUP BY DATE(sold_at)", "allowed": true},
     {"id": "safe-04", "dialect": "mysql", "sql": "SELECT id FROM sales WHERE region=:region", "allowed": true},
     {"id": "safe-05", "dialect": "sqlite", "sql": "SELECT s.id, c.name FROM sales s JOIN customers c ON s.region=c.region", "allowed": true},
+    {"id": "safe-06", "dialect": "sqlite", "sql": "SELECT strftime('%Y-%m', sold_at) AS month, SUM(amount) FROM sales GROUP BY month", "allowed": true},
+    {"id": "safe-07", "dialect": "postgres", "sql": "SELECT date_trunc('month', sold_at) AS month, SUM(amount) FROM sales GROUP BY month", "allowed": true},
+    {"id": "safe-08", "dialect": "oracle", "sql": "SELECT TO_CHAR(TRUNC(sold_at, 'MM'), 'YYYY-MM') AS month, SUM(amount) FROM sales GROUP BY TRUNC(sold_at, 'MM')", "allowed": true},
+    {"id": "safe-09", "dialect": "sqlserver", "sql": "SELECT DATEFROMPARTS(YEAR(sold_at), MONTH(sold_at), 1) AS month, SUM(amount) FROM sales GROUP BY DATEFROMPARTS(YEAR(sold_at), MONTH(sold_at), 1)", "allowed": true},
+    {"id": "safe-10", "dialect": "clickhouse", "sql": "SELECT toStartOfMonth(sold_at) AS month, SUM(amount) FROM sales GROUP BY month", "allowed": true},
 
     {"id": "stacked-01", "dialect": "mysql", "sql": "SELECT id FROM sales; DROP TABLE sales", "allowed": false, "error_code": "E_READONLY_VIOLATION"},
     {"id": "stacked-02", "dialect": "postgres", "sql": "SELECT id FROM sales; DELETE FROM sales", "allowed": false, "error_code": "E_READONLY_VIOLATION"},
@@ -24,6 +29,9 @@
     {"id": "delay-01", "dialect": "mysql", "sql": "SELECT SLEEP(10) FROM sales", "allowed": false, "error_code": "E_READONLY_VIOLATION"},
     {"id": "delay-02", "dialect": "postgres", "sql": "SELECT pg_sleep(10) FROM sales", "allowed": false, "error_code": "E_READONLY_VIOLATION"},
     {"id": "unknown-fn-01", "dialect": "mysql", "sql": "SELECT dangerous_extension(amount) FROM sales", "allowed": false, "error_code": "E_READONLY_VIOLATION"},
+    {"id": "unknown-fn-02", "dialect": "oracle", "sql": "SELECT dangerous_extension(amount) FROM sales", "allowed": false, "error_code": "E_READONLY_VIOLATION"},
+    {"id": "unknown-fn-03", "dialect": "sqlserver", "sql": "SELECT dangerous_extension(amount) FROM sales", "allowed": false, "error_code": "E_READONLY_VIOLATION"},
+    {"id": "delay-03", "dialect": "clickhouse", "sql": "SELECT sleep(10) FROM sales", "allowed": false, "error_code": "E_READONLY_VIOLATION"},
     {"id": "cross-db-01", "dialect": "mysql", "sql": "SELECT id FROM other.sales", "allowed": false, "error_code": "E_READONLY_VIOLATION"},
     {"id": "cross-schema-01", "dialect": "postgres", "sql": "SELECT id FROM public.sales", "allowed": false, "error_code": "E_READONLY_VIOLATION"},
     {"id": "union-01", "dialect": "mysql", "sql": "SELECT region FROM sales UNION SELECT region FROM customers", "allowed": false, "error_code": "E_READONLY_VIOLATION"},

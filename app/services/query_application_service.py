@@ -36,7 +36,6 @@ from ..config import settings
 from ..datasources import datasource_schema_details, get_datasource, list_datasources, role_can_use
 from ..domain.data_gateway import GatewayError, GatewayQuery
 from ..gateways.factory import build_gateway_registry
-from ..gateways.remote_sql import normalize_remote_sql
 from ..guardrails import QueryError, validate_sql
 from ..identity_store import save_query
 from ..llm import ModelConfigurationError
@@ -702,7 +701,11 @@ class QueryApplicationService:
                 authorized_examples = []
                 for example in context.get("examples", []):
                     try:
-                        apply_policy(validate_sql(example.get("sql", ""), current_schema, settings.max_sql_length, dialect=datasource.get("backend", "sqlite"), max_params=settings.max_params), policy_identity)
+                        apply_policy(
+                            validate_sql(example.get("sql", ""), current_schema, settings.max_sql_length, dialect=datasource.get("backend", "sqlite"), max_params=settings.max_params),
+                            policy_identity,
+                            dialect=datasource.get("backend", "sqlite"),
+                        )
                         authorized_examples.append(example)
                     except (QueryError, ValueError):
                         continue
@@ -729,10 +732,11 @@ class QueryApplicationService:
                 )
 
             params = dict(request.params)
+            backend = datasource.get("backend", "sqlite")
             query_service = QueryExecutionService(
-                validate=lambda candidate: validate_sql(normalize_remote_sql(candidate, datasource.get("backend")), current_schema, settings.max_sql_length, dialect=datasource.get("backend", "sqlite"), max_params=settings.max_params),
+                validate=lambda candidate: validate_sql(candidate, current_schema, settings.max_sql_length, dialect=backend, max_params=settings.max_params),
                 execute=lambda candidate, query_params: datasource_service.execute(identity, datasource["id"], candidate, query_params, request.max_rows or settings.max_rows, request.offset),
-                apply_policy=apply_policy,
+                apply_policy=lambda candidate, actor: apply_policy(candidate, actor, dialect=backend),
             )
             critic_invoke = None
             if settings.agent_reflection_llm_enabled:

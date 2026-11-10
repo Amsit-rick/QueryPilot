@@ -5,20 +5,11 @@ from sqlglot import exp, parse
 from sqlglot.dialects import Dialect
 from sqlglot.errors import ErrorLevel, SqlglotError
 
-from app.guardrails import QueryError
+from app.guardrails import QueryError, is_safe_query_function
 from app.config import settings
 
 
 REMOTE_DIALECTS = {"oracle": "oracle", "sqlserver": "tsql", "clickhouse": "clickhouse"}
-# Unknown functions may perform network/file access or invoke stored procedures.
-SAFE_FUNCTIONS = {
-    "ABS", "AVG", "CAST", "CEIL", "COALESCE", "COUNT", "DATE", "EXTRACT",
-    "FLOOR", "LOWER", "MAX", "MIN", "NULLIF", "ROUND", "SUM", "UPPER",
-    "LENGTH", "SUBSTRING", "TRIM", "CONCAT", "TIME_TO_STR", "STR_TO_TIME",
-    "YEAR", "MONTH", "DAY", "CASE", "IF", "ROW_NUMBER", "RANK", "DENSE_RANK",
-}
-
-
 def select_tree(sql, dialect):
     if not sql.strip() or len(sql) > settings.max_sql_length:
         raise QueryError("E_QUERY_LIMIT", "SQL is empty or exceeds the configured limit")
@@ -37,9 +28,7 @@ def select_tree(sql, dialect):
         if table.db or table.catalog or not isinstance(table.this, exp.Identifier):
             raise QueryError("E_READONLY_VIOLATION", "Qualified tables and table functions are disabled")
     for function in tree.find_all(exp.Func):
-        if isinstance(function, exp.Connector):
-            continue
-        if function.sql_name() not in SAFE_FUNCTIONS:
+        if not is_safe_query_function(function):
             raise QueryError("E_READONLY_VIOLATION", "Function is not enabled for this connector")
     for placeholder in tree.find_all(exp.Placeholder):
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(placeholder.this or "")):
@@ -47,19 +36,6 @@ def select_tree(sql, dialect):
     if any(tree.find_all(exp.Parameter)):
         raise QueryError("E_QUERY_INVALID", "Use :name parameters")
     return tree
-
-
-def normalize_remote_sql(sql, backend):
-    """Use the existing canonical SQLite policy pipeline before execution."""
-    dialect = REMOTE_DIALECTS.get(str(backend).lower())
-    if not dialect:
-        return sql
-    try:
-        return select_tree(sql, dialect).sql(
-            dialect="sqlite", comments=False, unsupported_level=ErrorLevel.RAISE
-        )
-    except SqlglotError as exc:
-        raise QueryError("E_QUERY_INVALID", "SQL cannot be normalized safely") from exc
 
 
 def compile_remote_sql(tree, backend, params):

@@ -18,7 +18,7 @@ from app.domain.chart_spec import parse_chart_spec
 from app.domain.data_gateway import GatewayError
 from app.domain.task import DataTask
 from app.gateways.factory import build_gateway_registry
-from app.gateways.remote_sql import normalize_remote_sql, select_tree, compile_remote_sql
+from app.gateways.remote_sql import REMOTE_DIALECTS, compile_remote_sql, select_tree
 from app.guardrails import QueryError, validate_sql
 from app.policy import apply_policy, filter_schema
 from app.repositories.memory_semantic_repository import InMemorySemanticRepository
@@ -178,10 +178,14 @@ def _connector_case(case: dict[str, Any]) -> dict[str, Any]:
     identity = {"roles": case.get("roles", ["admin"]), "datasource": "default"}
     schema = filter_schema({"sales": ["region", "amount"]}, identity)
     try:
-        canonical = normalize_remote_sql(case["sql"], case["backend"])
-        validate_sql(canonical, {table: set(columns) for table, columns in schema.items()})
-        apply_policy(canonical, identity)
-        compiled = compile_remote_sql(select_tree(canonical, "sqlite"), case["backend"], case.get("params", {}))
+        dialect = REMOTE_DIALECTS[case["backend"]]
+        canonical = validate_sql(
+            case["sql"],
+            {table: set(columns) for table, columns in schema.items()},
+            dialect=case["backend"],
+        )
+        apply_policy(canonical, identity, dialect=case["backend"])
+        compiled = compile_remote_sql(select_tree(canonical, dialect), case["backend"], case.get("params", {}))
         return {"passed": not case.get("expected_error") and case.get("expected_sql_fragment", "SELECT") in compiled, "execution": "not_run"}
     except QueryError as exc:
         return {"passed": exc.code == case.get("expected_error"), "error": exc.code, "execution": "not_run"}

@@ -81,17 +81,28 @@ def build_statements(
                 customer_id INT NULL,
                 region NVARCHAR(50) NOT NULL,
                 amount DECIMAL(12,2) NOT NULL,
+                sold_at DATE NOT NULL,
                 CONSTRAINT fk_sales_customer FOREIGN KEY (customer_id)
                     REFERENCES [{database}].dbo.customers(id)
             );""",
+        f"""IF COL_LENGTH(N'{database}.dbo.sales', N'sold_at') IS NULL
+            ALTER TABLE [{database}].dbo.sales ADD sold_at DATE NULL;""",
+        f"""UPDATE [{database}].dbo.sales
+            SET sold_at = DATEADD(month, -((id - 1) % 6), CAST('2026-08-15' AS date))
+            WHERE sold_at IS NULL;""",
+        f"""IF EXISTS (
+                SELECT 1 FROM [{database}].sys.columns
+                WHERE object_id = OBJECT_ID(N'{database}.dbo.sales')
+                  AND name = N'sold_at' AND is_nullable = 1
+            ) ALTER TABLE [{database}].dbo.sales ALTER COLUMN sold_at DATE NOT NULL;""",
         f"""IF NOT EXISTS (SELECT 1 FROM [{database}].dbo.customers)
             INSERT INTO [{database}].dbo.customers (id, name)
             VALUES (1, N'\u534e\u4e1c\u5ba2\u6237'), (2, N'\u534e\u5357\u5ba2\u6237');""",
         f"""IF NOT EXISTS (SELECT 1 FROM [{database}].dbo.sales)
-            INSERT INTO [{database}].dbo.sales (id, customer_id, region, amount)
-            VALUES (1, 1, N'\u534e\u4e1c', 1234.56),
-                   (2, 2, N'\u534e\u5357', 987.65),
-                   (3, 1, N'\u534e\u4e1c', 500.00);""",
+            INSERT INTO [{database}].dbo.sales (id, customer_id, region, amount, sold_at)
+            VALUES (1, 1, N'\u534e\u4e1c', 1234.56, '2026-06-15'),
+                   (2, 2, N'\u534e\u5357', 987.65, '2026-07-15'),
+                   (3, 1, N'\u534e\u4e1c', 500.00, '2026-08-15');""",
         f"""IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = N'{readonly_login}')
             CREATE LOGIN [{readonly_login}] WITH PASSWORD = {login_literal}, CHECK_POLICY = OFF;""",
         f"""USE [{database}];

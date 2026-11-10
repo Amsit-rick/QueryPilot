@@ -139,7 +139,6 @@ def update_task_status(task_id: str, request: TaskStatusRequest, identity: dict 
 
 def _validate_feedback_sql(sql: str, *, datasource_id: str, identity: dict) -> str:
     from app.datasources import datasource_schema, get_datasource, role_can_use
-    from app.gateways.remote_sql import normalize_remote_sql
     from app.guardrails import validate_sql
     from app.policy import apply_policy, filter_schema
 
@@ -150,10 +149,11 @@ def _validate_feedback_sql(sql: str, *, datasource_id: str, identity: dict) -> s
         {table: sorted(columns) for table, columns in datasource_schema(datasource).items()},
         {**identity, "datasource": datasource_id},
     )
-    normalized = normalize_remote_sql(sql, datasource.get("backend"))
+    backend = datasource.get("backend", "sqlite")
     return apply_policy(
-        validate_sql(normalized, {table: set(columns) for table, columns in visible.items()}, settings.max_sql_length, dialect=datasource.get("backend", "sqlite"), max_params=settings.max_params),
+        validate_sql(sql, {table: set(columns) for table, columns in visible.items()}, settings.max_sql_length, dialect=backend, max_params=settings.max_params),
         {**identity, "datasource": datasource_id},
+        dialect=backend,
     )
 
 

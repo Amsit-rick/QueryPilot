@@ -33,11 +33,14 @@ def test_build_statements_creates_database_tables_foreign_key_and_select_grant()
     assert "CREATE DATABASE [acceptance]" in joined
     assert "CREATE TABLE [acceptance].dbo.customers" in joined
     assert "CREATE TABLE [acceptance].dbo.sales" in joined
+    assert "sold_at DATE NOT NULL" in joined
+    assert "COL_LENGTH(N'acceptance.dbo.sales', N'sold_at') IS NULL" in joined
     assert "CONSTRAINT fk_sales_customer FOREIGN KEY" in joined
     assert "CREATE LOGIN [qpro_ro]" in joined
     assert "GRANT SELECT ON SCHEMA::dbo TO [qpro_ro]" in joined
     # At least two sales rows are required by the acceptance probes.
     assert joined.count("1234.56") == 1 and "987.65" in joined
+    assert "2026-06-15" in joined and "2026-08-15" in joined
 
 
 def test_provisioning_refuses_identifiers_that_could_inject_sql():

@@ -136,7 +136,17 @@ class RemoteGateway:
     def compile_query(self, request):
         if request.max_rows > 10000 or request.offset > 100000 or (request.timeout_seconds is not None and request.timeout_seconds <= 0):
             raise GatewayError("E_GATEWAY_LIMIT", "Connector pagination limit exceeded", operation="query")
-        tree = select_tree(request.sql, "sqlite")
+        dialect = REMOTE_DIALECTS[self.backend]
+        # Reject writes and unsafe connector syntax before opening a schema
+        # connection. This preserves the security boundary even when the
+        # database is unavailable or a malicious request targets a write.
+        tree = select_tree(request.sql, dialect)
+        validated = validate_sql(
+            request.sql,
+            {table: set(columns) for table, columns in self.schema().items()},
+            dialect=self.backend,
+        )
+        tree = select_tree(validated, dialect)
         sql_offset = tree.args.get("offset")
         if sql_offset and (
             not isinstance(sql_offset.expression, exp.Literal)
@@ -144,12 +154,13 @@ class RemoteGateway:
             or not 0 <= int(sql_offset.expression.this) + request.offset <= 100000
         ):
             raise QueryError("E_QUERY_LIMIT", "SQL offset exceeds the connector limit")
-        validate_sql(request.sql, {table: set(columns) for table, columns in self.schema().items()})
         bound = request.offset + request.max_rows + 1
         limit = tree.args.get("limit")
         if limit:
-            value = limit.expression
-            if not isinstance(value, exp.Literal) or not value.is_int or int(value.this) < 0 or limit.args.get("limit_options"):
+            value = limit.args.get("count") if isinstance(limit, exp.Fetch) else limit.expression
+            options = limit.args.get("limit_options")
+            safe_fetch = isinstance(limit, exp.Fetch) and options is not None and not options.args.get("percent") and not options.args.get("with_ties")
+            if not isinstance(value, exp.Literal) or not value.is_int or int(value.this) < 0 or (options and not safe_fetch):
                 raise QueryError("E_QUERY_LIMIT", "Only a non-negative literal LIMIT is supported")
             bound = min(bound, int(value.this))
         tree = tree.limit(bound)

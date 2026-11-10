@@ -133,6 +133,31 @@ def test_common_analytics_functions_remain_allowed(dialect, sql):
     assert validate_sql(sql, SCHEMA, dialect=dialect) == sql
 
 
+@pytest.mark.parametrize(("dialect", "sql"), [
+    ("sqlite", "SELECT strftime('%Y-%m', sold_at) AS month, SUM(amount) FROM sales GROUP BY month"),
+    ("postgres", "SELECT date_trunc('month', sold_at) AS month, SUM(amount) FROM sales GROUP BY month"),
+    ("oracle", "SELECT TO_CHAR(sold_at, 'YYYY-MM') AS month, SUM(amount) FROM sales GROUP BY TO_CHAR(sold_at, 'YYYY-MM')"),
+    ("oracle", "SELECT TO_CHAR(TRUNC(sold_at, 'MM'), 'YYYY-MM') AS month, SUM(amount) FROM sales GROUP BY TRUNC(sold_at, 'MM')"),
+    ("sqlserver", "SELECT DATEFROMPARTS(YEAR(sold_at), MONTH(sold_at), 1) AS month, SUM(amount) FROM sales GROUP BY DATEFROMPARTS(YEAR(sold_at), MONTH(sold_at), 1)"),
+    ("clickhouse", "SELECT toStartOfMonth(sold_at) AS month, SUM(amount) FROM sales GROUP BY month"),
+])
+def test_monthly_trend_functions_are_allowed_in_native_dialects(dialect, sql):
+    assert validate_sql(sql, SCHEMA, dialect=dialect) == sql
+
+
+@pytest.mark.parametrize(("dialect", "sql"), [
+    ("sqlite", "SELECT readfile('/etc/passwd') FROM sales"),
+    ("postgres", "SELECT pg_read_file('/etc/passwd') FROM sales"),
+    ("oracle", "SELECT dangerous_extension(amount) FROM sales"),
+    ("sqlserver", "SELECT dangerous_extension(amount) FROM sales"),
+    ("clickhouse", "SELECT sleep(10) FROM sales"),
+])
+def test_native_dialect_support_does_not_allow_dangerous_functions(dialect, sql):
+    with pytest.raises(QueryError) as exc:
+        validate_sql(sql, SCHEMA, dialect=dialect)
+    assert exc.value.code == "E_READONLY_VIOLATION"
+
+
 @pytest.mark.parametrize("dialect", ["sqlite", "mysql", "postgres"])
 def test_execution_bound_is_added_without_expanding_existing_limit(dialect):
     assert bound_query_rows("SELECT id FROM sales", dialect=dialect, max_rows=10) .endswith("LIMIT 11")

@@ -9,7 +9,6 @@ from pathlib import Path
 from .config import settings
 from .db import execute_readonly, schema
 from .guardrails import QueryError, validate_sql
-from .gateways.remote_sql import normalize_remote_sql
 from .llm import ModelConfigurationError, generate_sql
 from .audit import write_audit, summarize
 from .retrieval import load_catalog, retrieve_context
@@ -866,7 +865,8 @@ def approve_approval(approval_id: str, identity: dict = Depends(require_identity
     policy_identity = {**requester_identity, "datasource": datasource["id"]}
     approval_cost_estimate = None
     try:
-        sql = apply_policy(validate_sql(item["sql"], current_schema, settings.max_sql_length, dialect=datasource.get("backend", "sqlite"), max_params=settings.max_params), policy_identity)
+        backend = datasource.get("backend", "sqlite")
+        sql = apply_policy(validate_sql(item["sql"], current_schema, settings.max_sql_length, dialect=backend, max_params=settings.max_params), policy_identity, dialect=backend)
         if settings.query_cost_guard_enabled:
             cost_registry = build_gateway_registry(list_datasources())
             cost_service = DataGatewayService(cost_registry, can_use=lambda actor, descriptor: bool((configured := get_datasource(descriptor.id)) and role_can_use(actor, configured)), max_rows=settings.max_rows)
@@ -934,6 +934,7 @@ async def create_export(request: QueryRequest, background_tasks: BackgroundTasks
     sql = apply_policy(
         validate_sql(request.sql or "", current_schema, settings.max_sql_length, dialect=datasource.get("backend", "sqlite"), max_params=settings.max_params),
         {**identity, "datasource": datasource["id"]},
+        dialect=datasource.get("backend", "sqlite"),
     )
     replay_policy = get_tool_replay_policy_service().require("export.enqueue").as_dict()
     job_id = str(uuid4()); EXPORT_JOBS[job_id] = {"status": "queued", "created_at": time(), "user_id": int(identity["subject"]) if str(identity.get("subject", "")).isdigit() else None, "tenant_id": identity.get("tenant_id"), "persisted": False, "replay_policy": replay_policy}

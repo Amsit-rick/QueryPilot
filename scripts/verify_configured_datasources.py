@@ -19,6 +19,21 @@ from app.datasources import (
 )
 
 
+def _monthly_query(backend: str, date_column: str) -> str:
+    queries = {
+        "sqlite": f"SELECT strftime('%Y-%m', {date_column}) AS month, SUM(amount) AS total_amount FROM sales GROUP BY month ORDER BY month",
+        "mysql": f"SELECT DATE_FORMAT({date_column}, '%Y-%m') AS month, SUM(amount) AS total_amount FROM sales GROUP BY month ORDER BY month",
+        "postgres": f"SELECT date_trunc('month', {date_column}) AS month, SUM(amount) AS total_amount FROM sales GROUP BY date_trunc('month', {date_column}) ORDER BY month",
+        "postgresql": f"SELECT date_trunc('month', {date_column}) AS month, SUM(amount) AS total_amount FROM sales GROUP BY date_trunc('month', {date_column}) ORDER BY month",
+        "oracle": f"SELECT TO_CHAR({date_column}, 'YYYY-MM') AS month, SUM(amount) AS total_amount FROM sales GROUP BY TO_CHAR({date_column}, 'YYYY-MM') ORDER BY month",
+        "sqlserver": f"SELECT DATEFROMPARTS(YEAR({date_column}), MONTH({date_column}), 1) AS month, SUM(amount) AS total_amount FROM sales GROUP BY DATEFROMPARTS(YEAR({date_column}), MONTH({date_column}), 1) ORDER BY month",
+        "clickhouse": f"SELECT toStartOfMonth({date_column}) AS month, SUM(amount) AS total_amount FROM sales GROUP BY month ORDER BY month",
+    }
+    if backend not in queries:
+        raise ValueError(f"unsupported datasource backend: {backend}")
+    return queries[backend]
+
+
 def verify_datasource(
     datasource: dict,
     *,
@@ -37,7 +52,8 @@ def verify_datasource(
     if not sales_table:
         return {"id": datasource_id, "backend": backend, "ok": False, "stage": "schema"}
     columns = {str(name).lower() for name in schema[sales_table]}
-    if not {"region", "amount"}.issubset(columns):
+    date_column = "sold_at" if "sold_at" in columns else "created_at" if "created_at" in columns else None
+    if not {"region", "amount"}.issubset(columns) or date_column is None:
         return {"id": datasource_id, "backend": backend, "ok": False, "stage": "schema"}
 
     result_columns, rows, truncated = executor(
@@ -46,13 +62,20 @@ def verify_datasource(
         {},
         10,
     )
+    monthly_columns, monthly_rows, monthly_truncated = executor(
+        datasource,
+        _monthly_query(backend, date_column),
+        {},
+        24,
+    )
     return {
         "id": datasource_id,
         "backend": backend,
-        "ok": bool(result_columns) and bool(rows),
+        "ok": bool(result_columns) and bool(rows) and bool(monthly_columns) and bool(monthly_rows),
         "stage": "query",
         "row_count": len(rows),
-        "truncated": bool(truncated),
+        "monthly_bucket_count": len(monthly_rows),
+        "truncated": bool(truncated or monthly_truncated),
     }
 
 

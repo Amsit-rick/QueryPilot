@@ -23,7 +23,7 @@ import sqlglot
 from sqlglot import exp
 
 from .config import settings
-from .guardrails import QueryError
+from .guardrails import QueryError, validation_dialect
 
 
 def _default_policy() -> dict:
@@ -192,7 +192,7 @@ def _has_projection_star(tree: exp.Select) -> bool:
     return False
 
 
-def apply_policy(sql: str, identity: dict) -> str:
+def apply_policy(sql: str, identity: dict, *, dialect: str = "sqlite") -> str:
     """Validate that ``sql`` only touches tables/columns the role may access.
 
     Raises :class:`QueryError` with ``E_TABLE_FORBIDDEN`` or
@@ -203,7 +203,7 @@ def apply_policy(sql: str, identity: dict) -> str:
         raise QueryError("E_TABLE_FORBIDDEN", "当前角色没有可查询的表")
 
     try:
-        tree = sqlglot.parse_one(sql, read="sqlite")
+        tree = sqlglot.parse_one(sql, read=validation_dialect(dialect))
     except Exception:
         return sql  # guardrails is responsible for syntax errors
 

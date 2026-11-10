@@ -18,7 +18,6 @@ from app.config import settings
 from app.datasources import datasource_schema, datasource_schema_details, get_datasource, list_datasources, role_can_use
 from app.gateways.factory import build_gateway_registry
 from app.guardrails import QueryError, validate_sql
-from app.gateways.remote_sql import normalize_remote_sql
 from app.policy import apply_policy, filter_schema
 from app.retrieval import load_catalog
 from app.services.relationship_service import resolve_relationships
@@ -169,8 +168,8 @@ class ReadOnlyIntegrationService:
         if not isinstance(sql, str):
             raise ReadOnlyIntegrationError("E_INTEGRATION_SQL", "sql 必须是字符串")
         backend = get_datasource(datasource_id).get("backend", "sqlite")
-        normalized = validate_sql(normalize_remote_sql(sql, backend), {table: set(columns) for table, columns in schema.items()}, settings.max_sql_length, dialect=backend, max_params=settings.max_params)
-        plan["sql"] = apply_policy(normalized, {**identity, "datasource": datasource_id})
+        normalized = validate_sql(sql, {table: set(columns) for table, columns in schema.items()}, settings.max_sql_length, dialect=backend, max_params=settings.max_params)
+        plan["sql"] = apply_policy(normalized, {**identity, "datasource": datasource_id}, dialect=backend)
         plan["validation"] = "passed"
         return plan
 

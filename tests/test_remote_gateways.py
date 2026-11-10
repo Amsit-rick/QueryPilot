@@ -7,7 +7,7 @@ from app.domain.data_gateway import GatewayError, GatewayQuery
 from app.gateways.clickhouse_gateway import ClickHouseGateway
 from app.gateways.oracle_gateway import OracleGateway
 from app.gateways.sqlserver_gateway import SQLServerGateway
-from app.gateways.remote_sql import compile_remote_sql, normalize_remote_sql, select_tree
+from app.gateways.remote_sql import REMOTE_DIALECTS, compile_remote_sql, select_tree
 from app.guardrails import QueryError
 
 
@@ -25,7 +25,12 @@ class Cursor:
         self.connection.calls.append((sql, params))
         self.connection.execute_options = options
         if sql == self.connection.schema_sql:
-            self.rows = [("sales", "amount"), ("sales", "region"), ("users", "password_hash")]
+            self.rows = [
+                ("sales", "amount"),
+                ("sales", "region"),
+                ("sales", "sold_at"),
+                ("users", "password_hash"),
+            ]
         else:
             self.rows = [(Decimal("1.25"),), (Decimal("2.50"),), (Decimal("3.75"),)]
 
@@ -73,7 +78,7 @@ def gateway(gateway_type):
 def test_remote_contract_health_schema_query_and_cleanup(gateway_type):
     instance, connections, calls = gateway(gateway_type)
     assert instance.health().status == "healthy"
-    assert instance.schema() == {"sales": ["amount", "region"]}
+    assert instance.schema() == {"sales": ["amount", "region", "sold_at"]}
     assert instance.descriptor.metadata["maturity"] == "experimental"
     result = instance.query(GatewayQuery("SELECT amount FROM sales WHERE region=:region", {"region": "east"}, max_rows=1, offset=1, operation_id="query-1"))
     assert result.rows == [[Decimal("2.50")]] and result.truncated
@@ -146,11 +151,35 @@ def test_remote_safe_failure(gateway_type):
     ("sqlserver", "SELECT TOP 2 amount FROM sales"),
     ("clickhouse", "SELECT amount FROM sales LIMIT 2"),
 ])
-def test_native_sql_normalizes_for_policy_and_round_trips(backend, native):
-    canonical = normalize_remote_sql(native, backend)
-    assert "LIMIT 2" in canonical
-    output = compile_remote_sql(select_tree(canonical, "sqlite"), backend, {})
+def test_native_sql_parses_and_round_trips_without_sqlite_translation(backend, native):
+    output = compile_remote_sql(select_tree(native, REMOTE_DIALECTS[backend]), backend, {})
     assert "TOP 2" in output if backend == "sqlserver" else "2" in output
+
+
+@pytest.mark.parametrize(("gateway_type", "native", "function_name"), [
+    (
+        OracleGateway,
+        "SELECT TO_CHAR(sold_at, 'YYYY-MM') AS month, SUM(amount) FROM sales GROUP BY TO_CHAR(sold_at, 'YYYY-MM')",
+        "TO_CHAR",
+    ),
+    (
+        SQLServerGateway,
+        "SELECT DATEFROMPARTS(YEAR(sold_at), MONTH(sold_at), 1) AS month, SUM(amount) FROM sales GROUP BY DATEFROMPARTS(YEAR(sold_at), MONTH(sold_at), 1)",
+        "DATEFROMPARTS",
+    ),
+    (
+        ClickHouseGateway,
+        "SELECT toStartOfMonth(sold_at) AS month, SUM(amount) FROM sales GROUP BY month",
+        "toStartOfMonth",
+    ),
+])
+def test_remote_monthly_trend_compiles_from_native_dialect(gateway_type, native, function_name):
+    instance, _, _ = gateway(gateway_type)
+
+    rendered, params = instance.compile_query(GatewayQuery(native, max_rows=100))
+
+    assert function_name.lower() in rendered.lower()
+    assert params == {}
 
 
 @pytest.mark.parametrize("backend", ["oracle", "sqlserver", "clickhouse"])

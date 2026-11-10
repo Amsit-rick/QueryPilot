@@ -37,12 +37,20 @@ def test_all_datasource_launcher_starts_known_instances_and_verifies_queries():
     assert "docker-compose.mysql.yml" in content
     assert "mysql did not become ready" in content
     assert "docker-compose.postgres.yml" in content
+    assert "postgresql did not become ready" in content
+    assert "seed_multimonth_demo_data.py" in content
+    assert "--postgres-container query-pilot-postgres-postgres-1" in content
+    assert "--wait-seconds 30" in content
+    assert "call :wait_postgres" not in content
     assert "docker-compose.sqlserver.yml" in content
     assert "query-pilot-sqlserver" in content
     assert "provision_sqlserver.py" in content
     assert ".state.health.status" in content
     assert "sql server did not become healthy" in content
     assert "qp-clickhouse" in content
+    assert "provision_clickhouse.py" in content
+    assert "--container qp-clickhouse" in content
+    assert "clickhouse did not become ready" in content
     assert "verify_configured_datasources.py" in content
     assert "--wait-seconds 120" in content
     assert "--remove-orphans" not in content

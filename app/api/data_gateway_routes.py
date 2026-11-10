@@ -6,7 +6,6 @@ from app.gateways.factory import build_gateway_registry
 from app.services.data_gateway_service import DataGatewayService
 from app.domain.data_gateway import GatewayQuery,GatewayError
 from app.guardrails import validate_sql,QueryError
-from app.gateways.remote_sql import normalize_remote_sql
 from app.policy import filter_schema,apply_policy,redact_rows
 from app.schemas.data_gateway import GatewayQueryRequest,GatewayCancelRequest
 from app.config import settings
@@ -80,7 +79,7 @@ def query(id:str,r:GatewayQueryRequest,i=Depends(require_manage_access)):
  try:
   allowed=filter_schema(svc().schema(i,id),{**i,'datasource':id})
   backend=get_datasource(id).get('backend')
-  sql=apply_policy(validate_sql(normalize_remote_sql(r.sql,backend),{k:set(v) for k,v in allowed.items()},settings.max_sql_length,dialect=backend,max_params=settings.max_params),{**i,'datasource':id})
+  sql=apply_policy(validate_sql(r.sql,{k:set(v) for k,v in allowed.items()},settings.max_sql_length,dialect=backend,max_params=settings.max_params),{**i,'datasource':id},dialect=backend)
   return asdict(svc().query(i,id,GatewayQuery(sql,r.params,r.max_rows,r.offset)))
  except QueryError as e: raise HTTPException(422,{'code':e.code,'message':str(e)}) from e
  except GatewayError as e:err(e)

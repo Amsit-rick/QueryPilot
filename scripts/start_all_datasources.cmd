@@ -49,6 +49,11 @@ if not "%POSTGRES_READONLY_DSN%"=="" (
   echo Starting PostgreSQL 16...
   docker compose -p query-pilot-postgres -f docker-compose.postgres.yml up -d
   if errorlevel 1 exit /b 1
+  .venv\Scripts\python.exe scripts\seed_multimonth_demo_data.py --postgres-container query-pilot-postgres-postgres-1 --wait-seconds 30
+  if errorlevel 1 (
+    echo PostgreSQL did not become ready or demo data seeding failed.
+    exit /b 1
+  )
 )
 
 if not "%SQLSERVER_HOST%"=="" (
@@ -87,6 +92,22 @@ if not "%CLICKHOUSE_HOST%"=="" (
     exit /b 1
   )
   docker start qp-clickhouse >nul
+  if errorlevel 1 exit /b 1
+  set "CLICKHOUSE_READY=0"
+  for /l %%I in (1,1,30) do (
+    docker exec qp-clickhouse clickhouse-client --query "SELECT 1" >nul 2>&1
+    if not errorlevel 1 (
+      set "CLICKHOUSE_READY=1"
+      goto clickhouse_ready
+    )
+    ping 127.0.0.1 -n 2 >nul
+  )
+  :clickhouse_ready
+  if "%CLICKHOUSE_READY%"=="0" (
+    echo ClickHouse did not become ready within 30 seconds.
+    exit /b 1
+  )
+  .venv\Scripts\python.exe scripts\provision_clickhouse.py --container qp-clickhouse
   if errorlevel 1 exit /b 1
 )
 

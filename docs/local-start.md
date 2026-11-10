@@ -33,7 +33,16 @@ scripts\start_local.cmd
 脚本会启动 MySQL、等待数据库 ready、执行本地交付包预检，再打开后端窗口和前端窗口。后端配置自动读取项目根目录的 `.env`，不需要每次手动执行 `set MYSQL_*`。
 若 `.env`、虚拟环境、前端依赖或 Docker 缺失，启动脚本会直接提示重新运行首次安装，不再打开必然失败的窗口。
 
-需要在同一页面使用全部已适配数据库时，将 `.env` 中的 `START_ALL_DATASOURCES` 设为 `true`，并完成 PostgreSQL、Oracle、SQL Server、ClickHouse 的连接配置。`start_local.cmd` 会调用 `scripts\start_all_datasources.cmd`；该脚本会幂等启动 MySQL、PostgreSQL、SQL Server、ClickHouse，复用本机 Oracle 服务，再运行 `verify_configured_datasources.py`。验证必须实际通过连接、Schema 和 `sales` 只读查询，API 才会启动。SQL Server 与 ClickHouse 占用内存较高，16GB 开发机应先停止无关项目容器，避免 Docker Engine 因同时恢复多组服务而重启。
+需要在同一页面使用全部已适配数据库时，将 `.env` 中的 `START_ALL_DATASOURCES` 设为 `true`，并完成 PostgreSQL、Oracle、SQL Server、ClickHouse 的连接配置。`start_local.cmd` 会调用 `scripts\start_all_datasources.cmd`；该脚本会幂等启动 MySQL、PostgreSQL、SQL Server、ClickHouse，复用本机 Oracle 服务，并分别运行 SQL Server、ClickHouse 的演示 Schema 迁移。最后执行 `verify_configured_datasources.py`，验证必须实际通过连接、日期字段探测、`sales` 明细查询和月度聚合查询，API 才会启动。SQL Server 与 ClickHouse 占用内存较高，16GB 开发机应先停止无关项目容器，避免 Docker Engine 因同时恢复多组服务而重启。
+
+PostgreSQL 启动后会先等待 `pg_isready` 成功，再通过 `seed_multimonth_demo_data.py` 幂等补齐最近 12 个月、4 个区域的 48 条分析演示数据。脚本只使用 `910000+` 的保留 ID，不覆盖原始演示记录；重复启动不会重复累加。Oracle 不自动执行 SYSDBA 操作，因为配置项可能指向远程或共享实例。本机 Oracle 19c 需要补齐同一批数据时，管理员可在确认 PDB 和 Schema Owner 后显式执行：
+
+```cmd
+set ORACLE_HOME=D:\Oracle\product\19c\dbhome_1
+.venv\Scripts\python.exe scripts\seed_multimonth_demo_data.py --months 12 --oracle-sysdba --oracle-pdb ORCLPDB1 --oracle-schema-owner QUERYPILOT_OWNER
+```
+
+`ORACLE_HOME` 应替换为当前电脑的真实 Oracle Home，也可以改用 `--oracle-home` 显式传入。需要固定演示月份以复现实验时，可额外传入 `--end-month YYYY-MM`。默认值为执行当月，因此日常启动产生的是滚动 12 个月窗口。
 
 也可以单独运行只读预检（输出机器可读 JSON，不会显示密码或 Token）：
 
