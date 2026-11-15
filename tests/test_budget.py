@@ -4,7 +4,7 @@ from datetime import timezone
 
 import pytest
 
-from app.budget import cost_for_tokens, enforce_budget, estimate_query_cost, estimate_query_usage, estimate_tokens, settle_budget
+from app.budget import build_usage_summary, cost_for_tokens, enforce_budget, estimate_query_cost, estimate_query_usage, estimate_tokens, settle_budget
 from app.config import settings
 
 
@@ -45,6 +45,70 @@ def test_query_cost_estimate_is_bounded_and_skips_explicit_sql(monkeypatch):
     assert estimate_query_usage("查询销售额") == (130, 512)
     assert estimate_query_usage("查询销售额", "SELECT 1") == (0, 0)
     assert cost_for_tokens(100, 200) == 0.0003
+
+
+def test_usage_summary_prices_cache_hit_miss_and_output_separately(monkeypatch):
+    monkeypatch.setattr(settings, "model_input_cache_hit_cny_per_million", 0.04)
+    monkeypatch.setattr(settings, "model_input_cache_miss_cny_per_million", 2.0)
+    monkeypatch.setattr(settings, "model_output_cny_per_million", 8.0)
+    monkeypatch.setattr(settings, "model_pricing_basis", "configured-conservative")
+
+    usage = build_usage_summary(
+        input_tokens=531,
+        output_tokens=64,
+        cache_hit_input_tokens=100,
+        cache_miss_input_tokens=400,
+        usage_source="provider",
+        model="deepseek-flash",
+    )
+
+    assert usage == {
+        "input_tokens": 531,
+        "output_tokens": 64,
+        "total_tokens": 595,
+        "cache_hit_input_tokens": 100,
+        "cache_miss_input_tokens": 431,
+        "cost_cny": 0.001378,
+        "cost_cny_estimated": True,
+        "usage_source": "provider",
+        "model": "deepseek-flash",
+        "pricing_basis": "configured-conservative",
+    }
+
+
+def test_usage_summary_treats_unclassified_input_as_cache_miss(monkeypatch):
+    monkeypatch.setattr(settings, "model_input_cache_hit_cny_per_million", 0.04)
+    monkeypatch.setattr(settings, "model_input_cache_miss_cny_per_million", 2.0)
+    monkeypatch.setattr(settings, "model_output_cny_per_million", 8.0)
+
+    usage = build_usage_summary(
+        input_tokens=531,
+        output_tokens=64,
+        cache_hit_input_tokens=0,
+        cache_miss_input_tokens=0,
+        usage_source="estimate",
+        model="deepseek-chat",
+    )
+
+    assert usage["cache_miss_input_tokens"] == 531
+    assert usage["cost_cny"] == 0.001574
+    assert usage["usage_source"] == "estimate"
+
+
+def test_usage_summary_returns_zero_for_no_model_call_and_sanitizes_negatives():
+    usage = build_usage_summary(
+        input_tokens=-1,
+        output_tokens=-2,
+        cache_hit_input_tokens=-3,
+        cache_miss_input_tokens=-4,
+        usage_source="none",
+        model="deepseek-chat",
+    )
+
+    assert usage["total_tokens"] == 0
+    assert usage["cost_cny"] == 0.0
+    assert usage["cost_cny_estimated"] is False
+    assert usage["usage_source"] == "none"
 
 
 def test_redis_budget_uses_atomic_reservation(monkeypatch):

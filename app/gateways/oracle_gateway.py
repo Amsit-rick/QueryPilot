@@ -10,9 +10,37 @@ from app.gateways.remote_gateway import RemoteGateway
 
 class OracleGateway(RemoteGateway):
     backend = "oracle"
-    capabilities = GatewayCapabilities(cancel=False, cost_estimate=False, relationships=True)
+    capabilities = GatewayCapabilities(cancel=True, cost_estimate=False, relationships=True)
     health_sql = "SELECT 1 FROM DUAL"
     schema_sql = "SELECT table_name, column_name FROM user_tab_columns ORDER BY table_name, column_id"
+    multi_schema_sql = "SELECT owner, table_name, column_name FROM all_tab_columns ORDER BY owner, table_name, column_id"
+    deep_schema_sql = """
+        SELECT columns.table_name, columns.column_name, columns.data_type,
+               CASE columns.nullable WHEN 'Y' THEN 1 ELSE 0 END,
+               column_comments.comments, columns.column_id,
+               CASE WHEN EXISTS (
+                   SELECT 1 FROM user_constraints constraints
+                   JOIN user_cons_columns keys
+                     ON keys.constraint_name = constraints.constraint_name
+                    AND keys.owner = constraints.owner
+                   WHERE constraints.constraint_type = 'P'
+                     AND keys.table_name = columns.table_name
+                     AND keys.column_name = columns.column_name
+               ) THEN 1 ELSE 0 END,
+               CASE WHEN EXISTS (
+                   SELECT 1 FROM user_ind_columns indexes
+                   WHERE indexes.table_name = columns.table_name
+                     AND indexes.column_name = columns.column_name
+               ) THEN 1 ELSE 0 END,
+               table_comments.comments
+        FROM user_tab_columns columns
+        LEFT JOIN user_col_comments column_comments
+          ON column_comments.table_name = columns.table_name
+         AND column_comments.column_name = columns.column_name
+        LEFT JOIN user_tab_comments table_comments
+          ON table_comments.table_name = columns.table_name
+        ORDER BY columns.table_name, columns.column_id
+    """
     relationship_sql = """
         SELECT child_cols.table_name, child_cols.column_name,
                parent_cols.table_name, parent_cols.column_name,
@@ -37,6 +65,69 @@ class OracleGateway(RemoteGateway):
         WHERE owner = :schema_owner
         ORDER BY table_name, column_id
     """
+    owner_deep_schema_sql = """
+        SELECT columns.table_name, columns.column_name, columns.data_type,
+               CASE columns.nullable WHEN 'Y' THEN 1 ELSE 0 END,
+               column_comments.comments, columns.column_id,
+               CASE WHEN EXISTS (
+                   SELECT 1 FROM all_constraints constraints
+                   JOIN all_cons_columns keys
+                     ON keys.constraint_name = constraints.constraint_name
+                    AND keys.owner = constraints.owner
+                   WHERE constraints.constraint_type = 'P'
+                     AND constraints.owner = :schema_owner
+                     AND keys.table_name = columns.table_name
+                     AND keys.column_name = columns.column_name
+               ) THEN 1 ELSE 0 END,
+               CASE WHEN EXISTS (
+                   SELECT 1 FROM all_ind_columns indexes
+                   WHERE indexes.table_owner = :schema_owner
+                     AND indexes.table_name = columns.table_name
+                     AND indexes.column_name = columns.column_name
+               ) THEN 1 ELSE 0 END,
+               table_comments.comments
+        FROM all_tab_columns columns
+        LEFT JOIN all_col_comments column_comments
+          ON column_comments.owner = columns.owner
+         AND column_comments.table_name = columns.table_name
+         AND column_comments.column_name = columns.column_name
+        LEFT JOIN all_tab_comments table_comments
+          ON table_comments.owner = columns.owner
+         AND table_comments.table_name = columns.table_name
+        WHERE columns.owner = :schema_owner
+        ORDER BY columns.table_name, columns.column_id
+    """
+    multi_deep_schema_sql = """
+        SELECT columns.owner, columns.table_name, columns.column_name, columns.data_type,
+               CASE columns.nullable WHEN 'Y' THEN 1 ELSE 0 END,
+               column_comments.comments, columns.column_id,
+               CASE WHEN EXISTS (
+                   SELECT 1 FROM all_constraints constraints
+                   JOIN all_cons_columns keys
+                     ON keys.constraint_name = constraints.constraint_name
+                    AND keys.owner = constraints.owner
+                   WHERE constraints.constraint_type = 'P'
+                     AND constraints.owner = columns.owner
+                     AND keys.table_name = columns.table_name
+                     AND keys.column_name = columns.column_name
+               ) THEN 1 ELSE 0 END,
+               CASE WHEN EXISTS (
+                   SELECT 1 FROM all_ind_columns indexes
+                   WHERE indexes.table_owner = columns.owner
+                     AND indexes.table_name = columns.table_name
+                     AND indexes.column_name = columns.column_name
+               ) THEN 1 ELSE 0 END,
+               table_comments.comments
+        FROM all_tab_columns columns
+        LEFT JOIN all_col_comments column_comments
+          ON column_comments.owner = columns.owner
+         AND column_comments.table_name = columns.table_name
+         AND column_comments.column_name = columns.column_name
+        LEFT JOIN all_tab_comments table_comments
+          ON table_comments.owner = columns.owner
+         AND table_comments.table_name = columns.table_name
+        ORDER BY columns.owner, columns.table_name, columns.column_id
+    """
     owner_relationship_sql = """
         SELECT child_cols.table_name, child_cols.column_name,
                parent_cols.table_name, parent_cols.column_name,
@@ -57,6 +148,24 @@ class OracleGateway(RemoteGateway):
           AND parent_constraints.owner = :schema_owner
         ORDER BY constraints.constraint_name, child_cols.position
     """
+    multi_relationship_sql = """
+        SELECT constraints.owner, child_cols.table_name, child_cols.column_name,
+               parent_constraints.owner, parent_cols.table_name, parent_cols.column_name,
+               constraints.constraint_name, child_cols.position
+        FROM all_constraints constraints
+        JOIN all_cons_columns child_cols
+          ON child_cols.constraint_name = constraints.constraint_name
+         AND child_cols.owner = constraints.owner
+        JOIN all_constraints parent_constraints
+          ON parent_constraints.constraint_name = constraints.r_constraint_name
+         AND parent_constraints.owner = constraints.r_owner
+        JOIN all_cons_columns parent_cols
+          ON parent_cols.constraint_name = parent_constraints.constraint_name
+         AND parent_cols.owner = parent_constraints.owner
+         AND parent_cols.position = child_cols.position
+        WHERE constraints.constraint_type = 'R'
+        ORDER BY constraints.owner, constraints.constraint_name, child_cols.position
+    """
 
     def __init__(
         self,
@@ -68,7 +177,13 @@ class OracleGateway(RemoteGateway):
         schema_owner=None,
         plan_connect=None,
         cost_estimate_enabled=False,
+        integration_status="implemented",
+        production_status="not_validated",
+        capability_gaps=None,
+        namespaces=None,
     ):
+        if schema_owner and namespaces:
+            raise GatewayError("E_GATEWAY_CONFIG", "Oracle schema_owner and namespaces are mutually exclusive", operation="configure")
         configured_owner = schema_owner
         if configured_owner is not None and not isinstance(configured_owner, str):
             raise GatewayError("E_GATEWAY_CONFIG", "Oracle schema_owner must be a valid identifier", operation="configure")
@@ -80,6 +195,7 @@ class OracleGateway(RemoteGateway):
         self.schema_owner = normalized_owner or None
         if self.schema_owner:
             self.schema_sql = self.owner_schema_sql
+            self.deep_schema_sql = self.owner_deep_schema_sql
             self.relationship_sql = self.owner_relationship_sql
         if not isinstance(cost_estimate_enabled, bool):
             raise GatewayError("E_GATEWAY_CONFIG", "Oracle cost_estimate_enabled must be boolean", operation="configure")
@@ -96,11 +212,20 @@ class OracleGateway(RemoteGateway):
         else:
             self.plan_connect = None
         self.capabilities = GatewayCapabilities(
-            cancel=False,
+            cancel=True,
             cost_estimate=self.plan_connect is not None,
             relationships=True,
         )
-        super().__init__(gateway_id=gateway_id, name=name, allowed_tables=allowed_tables, connect=connect)
+        super().__init__(
+            gateway_id=gateway_id,
+            name=name,
+            allowed_tables=allowed_tables,
+            connect=connect,
+            integration_status=integration_status,
+            production_status=production_status,
+            capability_gaps=capability_gaps,
+            namespaces=namespaces,
+        )
 
     def schema_query_params(self):
         return {"schema_owner": self.schema_owner} if self.schema_owner else None
@@ -113,9 +238,15 @@ class OracleGateway(RemoteGateway):
         import oracledb
         if not settings.oracle_dsn or not settings.oracle_user or not settings.oracle_password:
             raise RuntimeError("Oracle configuration missing")
+        if settings.oracle_tls_required and not re.search(
+            r"(^tcps://|protocol\s*=\s*tcps)", settings.oracle_dsn, re.IGNORECASE
+        ):
+            raise RuntimeError("Oracle TLS configuration missing")
         connection = oracledb.connect(
             user=settings.oracle_user, password=settings.oracle_password,
             dsn=settings.oracle_dsn, tcp_connect_timeout=settings.gateway_connect_timeout_seconds,
+            ssl_server_dn_match=settings.oracle_ssl_server_dn_match,
+            wallet_location=settings.oracle_wallet_location.strip() or None,
         )
         connection.call_timeout = int(settings.gateway_query_timeout_seconds * 1000)
         return connection
@@ -125,11 +256,17 @@ class OracleGateway(RemoteGateway):
         import oracledb
         if not settings.oracle_dsn or not settings.oracle_plan_user or not settings.oracle_plan_password:
             raise RuntimeError("Oracle planner configuration missing")
+        if settings.oracle_tls_required and not re.search(
+            r"(^tcps://|protocol\s*=\s*tcps)", settings.oracle_dsn, re.IGNORECASE
+        ):
+            raise RuntimeError("Oracle TLS configuration missing")
         connection = oracledb.connect(
             user=settings.oracle_plan_user,
             password=settings.oracle_plan_password,
             dsn=settings.oracle_dsn,
             tcp_connect_timeout=settings.gateway_connect_timeout_seconds,
+            ssl_server_dn_match=settings.oracle_ssl_server_dn_match,
+            wallet_location=settings.oracle_wallet_location.strip() or None,
         )
         connection.call_timeout = int(settings.gateway_query_timeout_seconds * 1000)
         return connection
@@ -142,6 +279,10 @@ class OracleGateway(RemoteGateway):
 
     def execute_query(self, cursor, sql, params):
         cursor.execute(sql, params, fetch_decimals=True)
+
+    def cancel_query(self, connection, cursor, operation_id):
+        connection.cancel()
+        return True
 
     def estimate_cost(self, request):
         if self.plan_connect is None:

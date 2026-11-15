@@ -25,8 +25,12 @@ def select_tree(sql, dialect):
     if any(tree.find_all(exp.Into, exp.Lock, exp.Dot, exp.Command, exp.DDL, exp.DML)):
         raise QueryError("E_READONLY_VIOLATION", "Unsafe SELECT operation")
     for table in tree.find_all(exp.Table):
-        if table.db or table.catalog or not isinstance(table.this, exp.Identifier):
-            raise QueryError("E_READONLY_VIOLATION", "Qualified tables and table functions are disabled")
+        if (
+            table.catalog
+            or not isinstance(table.this, exp.Identifier)
+            or (table.db and not isinstance(table.args.get("db"), exp.Identifier))
+        ):
+            raise QueryError("E_READONLY_VIOLATION", "Cross-database and dynamic table references are disabled")
     for function in tree.find_all(exp.Func):
         if not is_safe_query_function(function):
             raise QueryError("E_READONLY_VIOLATION", "Function is not enabled for this connector")

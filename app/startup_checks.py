@@ -50,6 +50,15 @@ def validate_production_config() -> list[str]:
         errors.append("DAILY_BUDGET_USD 必须为有限非负数")
     if not isfinite(settings.cost_per_1k_tokens_usd) or settings.cost_per_1k_tokens_usd < 0:
         errors.append("COST_PER_1K_TOKENS_USD 必须为有限非负数")
+    for field, value in (
+        ("MODEL_INPUT_CACHE_HIT_CNY_PER_MILLION", settings.model_input_cache_hit_cny_per_million),
+        ("MODEL_INPUT_CACHE_MISS_CNY_PER_MILLION", settings.model_input_cache_miss_cny_per_million),
+        ("MODEL_OUTPUT_CNY_PER_MILLION", settings.model_output_cny_per_million),
+    ):
+        if not isfinite(value) or value < 0:
+            errors.append(f"{field} 必须为有限非负数")
+    if not settings.model_pricing_basis.strip():
+        errors.append("MODEL_PRICING_BASIS 不能为空")
     if settings.model_provider not in {"direct", "langchain"}:
         errors.append("MODEL_PROVIDER 必须为 direct 或 langchain")
     embedding_provider = str(settings.schema_embedding_provider).lower()

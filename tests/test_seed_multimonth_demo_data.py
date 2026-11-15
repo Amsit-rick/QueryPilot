@@ -8,9 +8,12 @@ import pytest
 from scripts.seed_multimonth_demo_data import (
     _resolve_oracle_home,
     _wait_for_postgres,
+    build_clickhouse_statements,
     build_demo_rows,
+    build_mysql_upsert,
     build_oracle_merge,
     build_postgres_upsert,
+    build_sqlserver_merge,
 )
 
 
@@ -43,6 +46,56 @@ def test_postgres_builder_is_idempotent_and_uses_typed_dates():
     assert "ON CONFLICT (id) DO UPDATE" in sql
     assert "DATE '2025-12-" in sql
     assert "DATE '2026-11-" in sql
+
+
+def test_mysql_builder_can_replace_demo_sales_with_the_shared_dataset():
+    sql = build_mysql_upsert(
+        build_demo_rows(end_month=date(2026, 11, 1), months=12),
+        replace_sales=True,
+    )
+
+    assert sql.startswith("DELETE FROM sales;")
+    assert "INSERT INTO sales (id, region, amount, sold_at)" in sql
+    assert "ON DUPLICATE KEY UPDATE" in sql
+    assert "'2025-12-" in sql
+    assert "'2026-11-" in sql
+
+
+def test_postgres_builder_can_replace_legacy_rows_before_upsert():
+    sql = build_postgres_upsert(
+        build_demo_rows(end_month=date(2026, 11, 1), months=12),
+        replace_sales=True,
+    )
+
+    assert sql.startswith("DELETE FROM sales;")
+    assert "ON CONFLICT (id) DO UPDATE" in sql
+
+
+def test_sqlserver_builder_replaces_only_the_demo_sales_table():
+    sql = build_sqlserver_merge(
+        build_demo_rows(end_month=date(2026, 11, 1), months=12),
+        database="query_agent",
+        replace_sales=True,
+    )
+
+    assert sql.startswith("DELETE FROM [query_agent].dbo.sales;")
+    assert "MERGE INTO [query_agent].dbo.sales AS target" in sql
+    assert "WHEN MATCHED THEN UPDATE" in sql
+    assert "WHEN NOT MATCHED THEN INSERT" in sql
+
+
+def test_clickhouse_builder_replaces_rows_and_inserts_the_shared_dataset():
+    statements = build_clickhouse_statements(
+        build_demo_rows(end_month=date(2026, 11, 1), months=12),
+        database="query_agent",
+        replace_sales=True,
+    )
+
+    assert statements[0] == "TRUNCATE TABLE `query_agent`.sales"
+    assert statements[1].startswith("INSERT INTO `query_agent`.sales")
+    assert "toDecimal64('5168.90', 2)" in statements[1]
+    assert "toDate('2025-12-" in statements[1]
+    assert "toDate('2026-11-" in statements[1]
 
 
 def test_postgres_wait_retries_until_container_is_ready(monkeypatch):
@@ -82,6 +135,17 @@ def test_oracle_builder_is_idempotent_and_scoped_to_validated_owner():
 
     with pytest.raises(ValueError, match="schema owner"):
         build_oracle_merge([], schema_owner="OWNER; DROP TABLE SALES")
+
+
+def test_oracle_builder_can_replace_legacy_rows_before_merge():
+    sql = build_oracle_merge(
+        build_demo_rows(end_month=date(2026, 11, 1), months=12),
+        schema_owner="QUERYPILOT_OWNER",
+        replace_sales=True,
+    )
+
+    assert sql.startswith("DELETE FROM QUERYPILOT_OWNER.sales;")
+    assert "MERGE INTO QUERYPILOT_OWNER.sales" in sql
 
 
 def test_oracle_home_requires_explicit_portable_configuration(monkeypatch, tmp_path):

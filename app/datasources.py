@@ -19,10 +19,18 @@ def _remote_gateway(ds):
     backend = str(ds.get("backend", "")).lower()
     gateway_type = REMOTE_GATEWAYS.get(backend)
     if gateway_type:
-        options = {"allowed_tables": ds.get("allowed_tables")}
+        options = {
+            "allowed_tables": ds.get("allowed_tables"),
+            "integration_status": ds.get("integration_status", "implemented"),
+            "production_status": ds.get("production_status", "not_validated"),
+            "capability_gaps": ds.get("capability_gaps", []),
+            "namespaces": ds.get("namespaces", []),
+        }
         if backend == "oracle" and "schema_owner" in ds:
             options["schema_owner"] = ds.get("schema_owner")
         if backend == "oracle" and "cost_estimate_enabled" in ds:
+            options["cost_estimate_enabled"] = ds.get("cost_estimate_enabled")
+        if backend == "sqlserver" and "cost_estimate_enabled" in ds:
             options["cost_estimate_enabled"] = ds.get("cost_estimate_enabled")
         return gateway_type(gateway_id=ds["id"], name=ds.get("name", ds["id"]), **options)
     return None

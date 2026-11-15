@@ -97,6 +97,8 @@ def build_task_conversation(detail: Mapping[str, Any]) -> dict[str, Any]:
             "answer": answer,
             "analysis": turn["analysis"],
         }
+        if isinstance(metadata.get("usage"), Mapping):
+            turn["result"]["usage"] = dict(metadata["usage"])
 
     branch_origin = None
     if _value(task, "parent_task_id", ""):

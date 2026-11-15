@@ -207,18 +207,21 @@ def apply_policy(sql: str, identity: dict, *, dialect: str = "sqlite") -> str:
     except Exception:
         return sql  # guardrails is responsible for syntax errors
 
+    def table_reference(table: exp.Table) -> str:
+        return f"{table.db}.{table.name}".lower() if table.db else table.name.lower()
+
     tables = policy["tables"]
     for table in tree.find_all(exp.Table):
-        name = table.name.lower()
+        name = table_reference(table)
         if tables != "*" and name not in tables:
-            raise QueryError("E_TABLE_FORBIDDEN", f"当前角色无权查询表：{table.name}")
+            raise QueryError("E_TABLE_FORBIDDEN", f"当前角色无权查询表：{name}")
 
     columns = policy["columns"]
     if columns != "*":
         if _has_projection_star(tree):
             raise QueryError("E_COLUMN_FORBIDDEN", "当前角色无权使用 SELECT *，请显式指定允许的字段")
-        table_names = {table.name.lower() for table in tree.find_all(exp.Table)}
-        aliases = {table.alias_or_name.lower(): table.name.lower() for table in tree.find_all(exp.Table)}
+        table_names = {table_reference(table) for table in tree.find_all(exp.Table)}
+        aliases = {table.alias_or_name.lower(): table_reference(table) for table in tree.find_all(exp.Table)}
         allowed_by_table = {table.lower(): {column.lower() for column in cols} for table, cols in columns.items()}
         for column in tree.find_all(exp.Column):
             name = column.name.lower()

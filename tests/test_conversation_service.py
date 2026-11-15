@@ -20,7 +20,19 @@ def test_projects_multiple_task_turns_with_matching_result_artifacts():
             item(sequence=6, kind="explain_result", status="completed", input={}, output={"summary": "华东最高"}),
         ],
         "artifacts": [
-            item(kind="table", metadata={"columns": ["amount"], "rows": [[100]], "row_count": 1}),
+            item(kind="table", metadata={
+                "columns": ["amount"],
+                "rows": [[100]],
+                "row_count": 1,
+                "usage": {
+                    "input_tokens": 531,
+                    "output_tokens": 64,
+                    "total_tokens": 595,
+                    "cost_cny": 0.001574,
+                    "cost_cny_estimated": True,
+                    "usage_source": "provider",
+                },
+            }),
             item(kind="chart", metadata={}),
             item(kind="table", metadata={"columns": ["region", "amount"], "rows": [["华东", 60], ["华南", 40]], "row_count": 2, "truncated": True}),
         ],
@@ -35,6 +47,8 @@ def test_projects_multiple_task_turns_with_matching_result_artifacts():
     assert conversation["turns"][0]["result"]["rows"] == [[100]]
     assert conversation["turns"][1]["result"]["rows"][0] == ["华东", 60]
     assert conversation["turns"][1]["result"]["truncated"] is True
+    assert conversation["turns"][0]["result"]["usage"]["total_tokens"] == 595
+    assert "usage" not in conversation["turns"][1]["result"]
 
 
 def test_projects_pending_approval_and_failed_turn_without_result_rows():

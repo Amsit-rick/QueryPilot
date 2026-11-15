@@ -11,6 +11,8 @@ BASE = {
     "SQLSERVER_DATABASE": "acceptance",
     "SQLSERVER_USER": "qpro_ro",
     "SQLSERVER_PASSWORD": "ReadOnly-Pass-123",
+    "SQLSERVER_PLAN_USER": "qpro_plan",
+    "SQLSERVER_PLAN_PASSWORD": "Planner-Pass-123",
     "SQLSERVER_ADMIN_PASSWORD": "Admin-Pass-123",
 }
 
@@ -27,6 +29,8 @@ def test_build_statements_creates_database_tables_foreign_key_and_select_grant()
         database="acceptance",
         readonly_login="qpro_ro",
         readonly_password="ReadOnly-Pass-123",
+        planner_login="qpro_plan",
+        planner_password="Planner-Pass-123",
     )
     joined = "\n".join(statements)
 
@@ -38,6 +42,9 @@ def test_build_statements_creates_database_tables_foreign_key_and_select_grant()
     assert "CONSTRAINT fk_sales_customer FOREIGN KEY" in joined
     assert "CREATE LOGIN [qpro_ro]" in joined
     assert "GRANT SELECT ON SCHEMA::dbo TO [qpro_ro]" in joined
+    assert "CREATE LOGIN [qpro_plan]" in joined
+    assert "GRANT SELECT ON SCHEMA::dbo TO [qpro_plan]" in joined
+    assert "GRANT SHOWPLAN TO [qpro_plan]" in joined
     # At least two sales rows are required by the acceptance probes.
     assert joined.count("1234.56") == 1 and "987.65" in joined
     assert "2026-06-15" in joined and "2026-08-15" in joined
@@ -50,6 +57,14 @@ def test_provisioning_refuses_identifiers_that_could_inject_sql():
         build_statements(database="acceptance", readonly_login="qpro'--", readonly_password="12345678")
     with pytest.raises(ValueError, match="password"):
         build_statements(database="acceptance", readonly_login="qpro", readonly_password="short")
+    with pytest.raises(ValueError, match="planner login"):
+        build_statements(
+            database="acceptance",
+            readonly_login="qpro",
+            readonly_password="12345678",
+            planner_login="plan; DROP LOGIN qpro",
+            planner_password="Planner-Pass-123",
+        )
 
 
 def test_password_quotes_are_escaped():

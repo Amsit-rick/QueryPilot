@@ -77,19 +77,18 @@ BASE_LIVE_TESTS = {
     "readonly_rejection": "test_remote_readonly_rejection",
 }
 CONNECTOR_LIVE_TESTS = {
-    "oracle": {**BASE_LIVE_TESTS, "cost_estimate": "test_remote_cost_estimate"},
-    "sqlserver": dict(BASE_LIVE_TESTS),
-    "clickhouse": dict(BASE_LIVE_TESTS),
+    connector: {**BASE_LIVE_TESTS, "cost_estimate": "test_remote_cost_estimate"}
+    for connector in ("oracle", "sqlserver", "clickhouse")
 }
 KNOWN_CAPABILITY_GAPS = {
     "oracle": (),
-    "sqlserver": ("cost_estimate",),
-    "clickhouse": ("cost_estimate", "relationships"),
+    "sqlserver": (),
+    "clickhouse": ("relationships",),
 }
 CAPABILITY_IMPLEMENTATION = {
     "oracle": {"schema_details": True, "relationships": True, "cost_estimate": True, "cte_preaggregation": True},
-    "sqlserver": {"schema_details": True, "relationships": True, "cost_estimate": False, "cte_preaggregation": True},
-    "clickhouse": {"schema_details": True, "relationships": False, "cost_estimate": False, "cte_preaggregation": True},
+    "sqlserver": {"schema_details": True, "relationships": True, "cost_estimate": True, "cte_preaggregation": True},
+    "clickhouse": {"schema_details": True, "relationships": False, "cost_estimate": True, "cte_preaggregation": True},
 }
 
 Runner = Callable[[list[str], Path, Mapping[str, str], int], subprocess.CompletedProcess[str]]

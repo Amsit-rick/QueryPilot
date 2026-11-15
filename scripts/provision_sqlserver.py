@@ -61,14 +61,22 @@ def build_statements(
     database: str,
     readonly_login: str,
     readonly_password: str,
+    planner_login: str | None = None,
+    planner_password: str | None = None,
 ) -> list[str]:
     """Return the ordered provisioning statements. No connection is opened."""
     database = _validate_identifier(database, "database")
     readonly_login = _validate_identifier(readonly_login, "readonly login")
     if len(readonly_password) < 8 or "\n" in readonly_password or "\r" in readonly_password:
         raise ValueError("readonly password must be at least 8 characters on one line")
+    if bool(planner_login) != bool(planner_password):
+        raise ValueError("planner login and password must be configured together")
+    if planner_login:
+        planner_login = _validate_identifier(planner_login, "planner login")
+        if len(planner_password or "") < 8 or "\n" in (planner_password or "") or "\r" in (planner_password or ""):
+            raise ValueError("planner password must be at least 8 characters on one line")
     login_literal = _quote_literal(readonly_password)
-    return [
+    statements = [
         f"IF DB_ID(N'{database}') IS NULL CREATE DATABASE [{database}];",
         f"""IF OBJECT_ID(N'{database}.dbo.customers', N'U') IS NULL
             CREATE TABLE [{database}].dbo.customers (
@@ -110,6 +118,20 @@ def build_statements(
                 CREATE USER [{readonly_login}] FOR LOGIN [{readonly_login}];
             GRANT SELECT ON SCHEMA::dbo TO [{readonly_login}];""",
     ]
+    if planner_login:
+        planner_literal = _quote_literal(planner_password or "")
+        statements.extend([
+            f"""IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = N'{planner_login}')
+                CREATE LOGIN [{planner_login}] WITH PASSWORD = {planner_literal}, CHECK_POLICY = OFF;""",
+            f"""USE [{database}];
+                IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'{planner_login}')
+                    CREATE USER [{planner_login}] FOR LOGIN [{planner_login}];
+                GRANT SELECT ON SCHEMA::dbo TO [{planner_login}];
+                GRANT SHOWPLAN TO [{planner_login}];""",
+        ])
+    else:
+        statements.append(f"USE [{database}]; GRANT SHOWPLAN TO [{readonly_login}];")
+    return statements
 
 
 def _connect(**kwargs):
@@ -148,6 +170,8 @@ def main(argv: list[str] | None = None) -> int:
     database = _setting("SQLSERVER_DATABASE", file_values)
     readonly_user = _setting("SQLSERVER_USER", file_values)
     readonly_password = _setting("SQLSERVER_PASSWORD", file_values)
+    planner_user = _setting("SQLSERVER_PLAN_USER", file_values)
+    planner_password = _setting("SQLSERVER_PLAN_PASSWORD", file_values)
     admin_user = _setting("SQLSERVER_ADMIN_USER", file_values, "sa")
     admin_password = _setting("SQLSERVER_ADMIN_PASSWORD", file_values)
     missing = [
@@ -169,6 +193,8 @@ def main(argv: list[str] | None = None) -> int:
             database=database,
             readonly_login=readonly_user,
             readonly_password=readonly_password,
+            planner_login=planner_user or None,
+            planner_password=planner_password or None,
         )
     except ValueError as exc:
         print(f"Invalid configuration: {exc}")
@@ -176,7 +202,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         for index, statement in enumerate(statements, start=1):
             print(f"-- {index}")
-            print(statement.replace(readonly_password, "***"))
+            rendered = statement.replace(readonly_password, "***")
+            if planner_password:
+                rendered = rendered.replace(planner_password, "***")
+            print(rendered)
         return 0
     try:
         connection = _connect(server=host, port=str(port), user=admin_user, password=admin_password,

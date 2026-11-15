@@ -154,17 +154,24 @@ def validate_sql(
             raise QueryError("E_QUERY_INVALID", "CTE 必须声明唯一且明确的输出列")
         cte_names.add(name)
         known[name] = columns
+    def table_reference(table: exp.Table) -> str:
+        if table.catalog:
+            raise QueryError("E_READONLY_VIOLATION", "禁止跨数据库查询")
+        if not isinstance(table.this, exp.Identifier) or (table.db and not isinstance(table.args.get("db"), exp.Identifier)):
+            raise QueryError("E_READONLY_VIOLATION", "禁止表函数或动态表引用")
+        return f"{table.db}.{table.name}".lower() if table.db else table.name.lower()
+
     for cte in ctes:
         name = cte.alias_or_name.lower()
-        if any(table.name.lower() == name for table in cte.this.find_all(exp.Table)):
+        if any(not table.db and table.name.lower() == name for table in cte.this.find_all(exp.Table)):
             raise QueryError("E_READONLY_VIOLATION", "禁止 CTE 自引用")
     physical_tables = 0
     for table in tree.find_all(exp.Table):
-        if table.db or table.catalog or not isinstance(table.this, exp.Identifier):
-            raise QueryError("E_READONLY_VIOLATION", "禁止跨库、跨 Schema 或表函数查询")
-        table_name = table.name.lower()
+        table_name = table_reference(table)
         if table_name not in known:
-            raise QueryError("E_HALLUCINATED_FIELD", f"未授权或不存在的表：{table.name}")
+            if table.db:
+                raise QueryError("E_READONLY_VIOLATION", f"未授权的 Schema 或数据库限定表：{table_name}")
+            raise QueryError("E_HALLUCINATED_FIELD", f"未授权或不存在的表：{table_name}")
         if table_name not in cte_names:
             physical_tables += 1
     if not physical_tables:
@@ -179,7 +186,7 @@ def validate_sql(
 
     def source_columns(source: exp.Expression | Scope) -> set[str]:
         if isinstance(source, exp.Table):
-            return known.get(source.name.lower(), set())
+            return known.get(table_reference(source), set())
         projected = source.outer_columns or source.expression.named_selects
         return {str(column).lower() for column in projected}
 

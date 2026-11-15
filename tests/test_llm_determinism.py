@@ -1,6 +1,7 @@
 import pytest
 
 from app import llm
+from app.sql_cache import clear
 
 
 @pytest.mark.anyio
@@ -44,7 +45,16 @@ async def test_llm_forwards_provider_usage(monkeypatch):
             return None
 
         def json(self):
-            return {"choices": [{"message": {"content": "SELECT 1"}}], "usage": {"prompt_tokens": 12, "completion_tokens": 7}}
+            return {
+                "model": "deepseek-flash",
+                "choices": [{"message": {"content": "SELECT 1"}}],
+                "usage": {
+                    "prompt_tokens": 12,
+                    "completion_tokens": 7,
+                    "prompt_cache_hit_tokens": 5,
+                    "prompt_cache_miss_tokens": 7,
+                },
+            }
 
     class Client:
         def __init__(self, **kwargs):
@@ -63,7 +73,56 @@ async def test_llm_forwards_provider_usage(monkeypatch):
     usage = {}
     result = await llm.generate_sql("usage callback test 20260916", {"sales": {"id"}}, "key", "http://model", "deepseek-chat", 5, usage_callback=usage.update)
     assert result == "SELECT 1"
-    assert usage == {"input_tokens": 12, "output_tokens": 7}
+    assert usage == {
+        "input_tokens": 12,
+        "output_tokens": 7,
+        "cache_hit_input_tokens": 5,
+        "cache_miss_input_tokens": 7,
+    }
+
+
+@pytest.mark.anyio
+async def test_llm_local_plan_cache_reports_zero_model_usage(monkeypatch):
+    clear()
+    calls = 0
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [{"message": {"content": "SELECT 1"}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 2},
+            }
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, path, **kwargs):
+            nonlocal calls
+            calls += 1
+            return Response()
+
+    monkeypatch.setattr(llm.httpx, "AsyncClient", Client)
+    question = "local cache usage receipt 20261111"
+    first_usage = {}
+    second_usage = {}
+
+    await llm.generate_sql(question, {"sales": {"id"}}, "key", "http://model", "deepseek-chat", 5, usage_callback=first_usage.update)
+    await llm.generate_sql(question, {"sales": {"id"}}, "key", "http://model", "deepseek-chat", 5, usage_callback=second_usage.update)
+
+    assert calls == 1
+    assert first_usage["input_tokens"] == 10
+    assert second_usage == {"usage_source": "none", "local_cache_hit": 1}
+    clear()
 
 
 @pytest.mark.anyio
@@ -113,4 +172,9 @@ async def test_llm_invalid_usage_does_not_fail_successful_generation(monkeypatch
     usage = {}
     result = await llm.generate_sql("invalid usage test 20260916", {"sales": {"id"}}, "key", "http://model", "deepseek-chat", 5, usage_callback=usage.update)
     assert result == "SELECT 2"
-    assert usage == {"input_tokens": 0, "output_tokens": 0}
+    assert usage == {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_hit_input_tokens": 0,
+        "cache_miss_input_tokens": 0,
+    }

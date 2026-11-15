@@ -31,7 +31,11 @@ def test_langchain_generator_accepts_structured_plan_object():
 def test_langchain_generator_extracts_usage_metadata():
     class Message:
         content = "SELECT 1"
-        usage_metadata = {"input_tokens": 21, "output_tokens": 8}
+        usage_metadata = {
+            "input_tokens": 21,
+            "output_tokens": 8,
+            "input_token_details": {"cache_read": 6, "cache_miss": 15},
+        }
 
     class FakeGenerator:
         async def ainvoke(self, payload):
@@ -40,14 +44,26 @@ def test_langchain_generator_extracts_usage_metadata():
     usage = {}
     plan = asyncio.run(generate_sql(generator=FakeGenerator(), question="q", schema={}, context=None, dialect="mysql", usage_callback=usage.update))
     assert plan.sql == "SELECT 1"
-    assert usage == {"input_tokens": 21, "output_tokens": 8}
+    assert usage == {
+        "input_tokens": 21,
+        "output_tokens": 8,
+        "cache_hit_input_tokens": 6,
+        "cache_miss_input_tokens": 15,
+    }
 
 
 def test_langchain_generator_extracts_response_metadata_usage():
     class Message:
         content = "SELECT 1"
         usage_metadata = None
-        response_metadata = {"token_usage": {"prompt_tokens": 11, "completion_tokens": 4}}
+        response_metadata = {
+            "token_usage": {
+                "prompt_tokens": 11,
+                "completion_tokens": 4,
+                "prompt_cache_hit_tokens": 3,
+                "prompt_cache_miss_tokens": 8,
+            }
+        }
 
     class FakeGenerator:
         async def ainvoke(self, payload):
@@ -55,7 +71,12 @@ def test_langchain_generator_extracts_response_metadata_usage():
 
     usage = {}
     asyncio.run(generate_sql(generator=FakeGenerator(), question="q", schema={}, context=None, dialect="mysql", usage_callback=usage.update))
-    assert usage == {"input_tokens": 11, "output_tokens": 4}
+    assert usage == {
+        "input_tokens": 11,
+        "output_tokens": 4,
+        "cache_hit_input_tokens": 3,
+        "cache_miss_input_tokens": 8,
+    }
 
 
 def test_build_generator_treats_tenant_prompt_braces_as_literal(monkeypatch):

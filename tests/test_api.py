@@ -133,6 +133,9 @@ def test_query_with_explicit_sql():
     body = response.json()
     assert body["columns"] == ["region", "amount"]
     assert body["row_count"] >= 3
+    assert body["usage"]["usage_source"] == "none"
+    assert body["usage"]["total_tokens"] == 0
+    assert body["usage"]["cost_cny"] == 0.0
     detail = client.get(f"/api/v1/tasks/{body['task_id']}").json()
     assert detail["status"] == "completed"
     assert [step["kind"] for step in detail["steps"]] == ["understand_question", "resolve_semantics", "plan_analysis", "query", "verify_result", "explain_result", "materialize_artifacts"]
@@ -141,6 +144,7 @@ def test_query_with_explicit_sql():
     assert detail["artifacts"][0]["kind"] == "table"
     assert detail["artifacts"][0]["metadata"]["data_scope"] == "redacted"
     assert detail["artifacts"][0]["metadata"]["rows"] == body["rows"][:100]
+    assert detail["artifacts"][0]["metadata"]["usage"] == body["usage"]
     assert detail["artifacts"][0]["metadata"]["byte_size"] > 0
     assert isinstance(detail["artifacts"][0]["metadata"]["truncation_reasons"], list)
     assert detail["artifacts"][0]["metadata"]["byte_size"] <= detail["artifacts"][0]["metadata"]["byte_budget"]
@@ -288,6 +292,42 @@ def test_model_generated_params_are_bound_through_query_api(monkeypatch):
     assert body["rows"]
     assert {row[0] for row in body["rows"]} == {"华东"}
     assert ":region" in body["sql"]
+
+
+def test_model_usage_receipt_is_returned_and_restored_with_conversation(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "model_input_cache_hit_cny_per_million", 0.04)
+    monkeypatch.setattr(settings, "model_input_cache_miss_cny_per_million", 2.0)
+    monkeypatch.setattr(settings, "model_output_cny_per_million", 8.0)
+
+    async def generated_plan(*_args, **kwargs):
+        kwargs["usage_callback"]({
+            "input_tokens": 531,
+            "output_tokens": 64,
+            "cache_hit_input_tokens": 0,
+            "cache_miss_input_tokens": 531,
+        })
+        return {
+            "sql": "SELECT region, amount FROM sales",
+            "confidence": 0.9,
+            "needs_approval": False,
+        }
+
+    monkeypatch.setattr("app.main.generate_sql", generated_plan)
+    client = TestClient(app)
+    body = client.post(
+        "/api/v1/query",
+        json={"question": "模型用量回执回归 20261111"},
+    ).json()
+
+    assert body["usage"]["usage_source"] == "provider"
+    assert body["usage"]["total_tokens"] == 595
+    assert body["usage"]["cost_cny"] == 0.001574
+    assert body["usage"]["cost_cny_estimated"] is True
+
+    conversation = client.get(f"/api/v1/tasks/{body['task_id']}/conversation").json()
+    assert conversation["turns"][-1]["result"]["usage"] == body["usage"]
 
 
 def test_model_generated_param_conflict_fails_closed(monkeypatch):
@@ -580,7 +620,7 @@ def test_query_executes_second_stage_descriptive_analysis():
     }).json()
     assert body["analysis"]["mode"] == "descriptive_statistics"
     values = [row[0] for row in body["rows"]]
-    assert body["analysis"]["metrics"]["amount"] == {"count": len(values), "min": min(values), "max": max(values), "average": sum(values) / len(values)}
+    assert body["analysis"]["metrics"]["amount"] == {"count": len(values), "min": min(values), "max": max(values), "average": round(sum(values) / len(values), 6)}
     detail = client.get(f"/api/v1/tasks/{body['task_id']}").json()
     assert [step["kind"] for step in detail["steps"]][-3:] == ["analyze_result", "explain_result", "materialize_artifacts"]
 
@@ -697,8 +737,9 @@ def test_observability_tolerates_corrupt_audit_lines(tmp_path, monkeypatch):
 
 def test_query_pagination_and_approval():
     client = TestClient(app)
+    baseline = client.post("/api/v1/query", json={"question":"查询", "sql":"SELECT id FROM sales ORDER BY id", "max_rows":2}).json()
     page = client.post("/api/v1/query", json={"question":"查询", "sql":"SELECT id FROM sales ORDER BY id", "max_rows":1, "offset":1}).json()
-    assert page["rows"] == [[2]]
+    assert page["rows"] == baseline["rows"][1:2]
     approval = client.post("/api/v1/query", json={"question":"导出", "sql":"SELECT * FROM sales", "require_approval":True}).json()
     assert approval["status"] == "approval_required"
 

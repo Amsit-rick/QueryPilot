@@ -92,6 +92,10 @@ class Settings(BaseSettings):
     daily_budget_usd: float = 5.0
     budget_backend: str = "memory"
     cost_per_1k_tokens_usd: float = 0.00014
+    model_input_cache_hit_cny_per_million: float = Field(default=0.04, ge=0)
+    model_input_cache_miss_cny_per_million: float = Field(default=2.0, ge=0)
+    model_output_cny_per_million: float = Field(default=8.0, ge=0)
+    model_pricing_basis: str = "configured-conservative"
     export_dir: str = "./data/exports"
     export_job_ttl_seconds: int = 3600
     export_execution_mode: str = "inline"
@@ -127,22 +131,38 @@ class Settings(BaseSettings):
     postgres_readonly_dsn: str = ""
     gateway_connect_timeout_seconds: float = Field(default=5.0, ge=1, le=300)
     gateway_query_timeout_seconds: float = Field(default=30.0, ge=1, le=300)
+    gateway_max_connections: int = Field(default=5, ge=1, le=100)
+    gateway_pool_acquire_timeout_seconds: float = Field(default=5.0, ge=0.01, le=300)
+    gateway_pool_idle_ttl_seconds: float = Field(default=300.0, ge=0, le=86400)
     oracle_dsn: str = ""
     oracle_user: str = ""
     oracle_password: str = ""
     oracle_plan_user: str = ""
     oracle_plan_password: str = ""
+    oracle_tls_required: bool = False
+    oracle_wallet_location: str = ""
+    oracle_ssl_server_dn_match: bool = True
     sqlserver_host: str = ""
     sqlserver_port: int = 1433
     sqlserver_database: str = ""
     sqlserver_user: str = ""
     sqlserver_password: str = ""
+    sqlserver_plan_user: str = ""
+    sqlserver_plan_password: str = ""
+    sqlserver_tls_required: bool = False
     clickhouse_host: str = ""
     clickhouse_port: int = 9000
     clickhouse_database: str = ""
     clickhouse_user: str = ""
     clickhouse_password: str = ""
     clickhouse_secure: bool = False
+    clickhouse_tls_required: bool = False
+    clickhouse_tls_verify: bool = True
+    clickhouse_ca_certs: str = ""
+    clickhouse_max_memory_usage: int = Field(default=268435456, ge=1048576, le=1099511627776)
+    clickhouse_max_rows_to_read: int = Field(default=10000000, ge=1, le=1000000000000)
+    clickhouse_max_bytes_to_read: int = Field(default=1073741824, ge=1048576, le=1099511627776)
+    clickhouse_max_threads: int = Field(default=4, ge=1, le=256)
     mysql_host: str = "127.0.0.1"
     mysql_port: int = 3307
     mysql_database: str = "query_agent"

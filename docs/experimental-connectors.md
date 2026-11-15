@@ -1,10 +1,9 @@
 # 实验数据库连接器（DB-01+）
 
-Oracle、SQL Server、ClickHouse 已有独立 Gateway 和驱动连接实现，默认不开启。
-2026-11-07 已在本机 Oracle Database 19c 19.3 Enterprise Edition 上完成八项真实探针；
-SQL Server、ClickHouse 仍没有真实实例证据。该结果只证明当前隔离开发环境，不代表生产兼容。
-Gateway 列表的 `metadata.maturity` 固定为 `experimental`，静态元数据不会因为一次健康检查或
-本地报告自动升级；真实验收状态以脱敏 acceptance 报告为准。
+Oracle、SQL Server、ClickHouse 已有独立 Gateway 和驱动连接实现，默认按配置失败关闭。
+三者均已在本机隔离实例完成真实只读链路验收；Gateway 元数据使用
+`integration_status=accepted_local`、`production_status=not_validated` 和独立 `capability_gaps`，
+不会因为本地报告自动宣称生产兼容。真实证据仍以脱敏 acceptance 报告为准。
 
 ## 安装和配置
 
@@ -22,13 +21,13 @@ ClickHouse 使用 clickhouse-driver 原生协议，默认端口 9000，不是 HT
 
 | backend | 配置项 |
 |---|---|
-| `oracle` | `ORACLE_DSN`（host:port/service 或完整 Oracle Connect Descriptor）、`ORACLE_USER`、`ORACLE_PASSWORD`、`ORACLE_SCHEMA_OWNER`（业务底表 owner）、`ORACLE_PLAN_USER`、`ORACLE_PLAN_PASSWORD`（独立计划评估账号） |
-| `sqlserver` | `SQLSERVER_HOST`、`SQLSERVER_PORT`（默认 1433）、`SQLSERVER_DATABASE`、`SQLSERVER_USER`、`SQLSERVER_PASSWORD` |
-| `clickhouse` | `CLICKHOUSE_HOST`、`CLICKHOUSE_PORT`（默认 9000）、`CLICKHOUSE_DATABASE`、`CLICKHOUSE_USER`、`CLICKHOUSE_PASSWORD`、`CLICKHOUSE_SECURE` |
+| `oracle` | `ORACLE_DSN`、查询/Planner 账号；TLS 可配 `ORACLE_TLS_REQUIRED`、`ORACLE_WALLET_LOCATION`、`ORACLE_SSL_SERVER_DN_MATCH` |
+| `sqlserver` | `SQLSERVER_HOST/PORT/DATABASE`、查询/Planner 账号；`SQLSERVER_TLS_REQUIRED=true` 时驱动使用 `encryption=require` |
+| `clickhouse` | `CLICKHOUSE_HOST/PORT/DATABASE/USER/PASSWORD`；TLS 可配 `CLICKHOUSE_SECURE`、`CLICKHOUSE_TLS_REQUIRED`、`CLICKHOUSE_TLS_VERIFY`、`CLICKHOUSE_CA_CERTS` |
 
-`GATEWAY_CONNECT_TIMEOUT_SECONDS` 默认 5 秒，`GATEWAY_QUERY_TIMEOUT_SECONDS` 默认 30 秒。
-生产 TLS、服务器证书和账号权限仍需目标环境验证；不要把 SQL Server 的 read-only 连接意图
-误认为账号权限控制。ClickHouse TLS 通常使用 9440，并配置 `CLICKHOUSE_SECURE=true`。
+`GATEWAY_MAX_CONNECTIONS` 默认 5，获取超时默认 5 秒，空闲 TTL 默认 300 秒。连接归还前回滚，
+借用期间异常的连接不会回池。TLS 开关失败关闭，但企业证书链、轮换和双向认证仍需目标环境验收；
+不要把 SQL Server 的 read-only 连接意图误认为账号权限控制。
 
 在 `data/datasources.json` 的 `datasources` 数组追加需要测试的条目，例如：
 
@@ -118,7 +117,8 @@ Oracle 与 SQL Server 的实验适配器已增加数据库外键元数据读取�
 空关系列表不能再作为通过证据；
 ClickHouse 当前没有统一外键元数据契约，因此仍报告 `relationships` 能力缺口。Oracle 的成本估算使用独立
 planner 账号执行 `EXPLAIN PLAN`，读取后立即清理自己的 PLAN_TABLE；业务查询账号不获得 PLAN_TABLE DML。
-SQL Server、ClickHouse 的 `cost_estimate` 仍显式返回不支持。
+SQL Server 通过独立或回退只读 Planner 身份执行 `SHOWPLAN_XML`；ClickHouse 通过 `EXPLAIN ESTIMATE`
+返回预计扫描 rows/marks，并同时下发内存、读行数、读字节数、线程数和执行时间限制。
 每项 evidence 作为独立 pytest 探针执行。单项失败只会把对应 evidence 标记为 false，其余已通过证据仍保留；
 整体 `passed` 仍要求所选连接器的全部探针通过。`--timeout-seconds` 对每一个独立探针生效。原始 pytest 输出和数据库异常
 不会写入报告。`cte_preaggregation` 会在目标实例上实际执行一个按区域聚合的非递归 CTE，并继续使用命名参数绑定；
@@ -160,8 +160,8 @@ SQL Server、ClickHouse 的 `cost_estimate` 仍显式返回不支持。
 - `scripts/connector_acceptance.py --connector clickhouse` 实际执行八项探针，结果 `8_passed`、
   `external_validation=passed`；脱敏报告为 `artifacts/connector-acceptance-clickhouse.json`。
 - 验收完成后容器已停止以释放内存；复验前执行 docker start qp-clickhouse 并确认 .env 中的 CLICKHOUSE_* 仍有效。
-- 能力边界：ClickHouse 没有统一外键元数据契约，`relationships` 与 `cost_estimate` 仍是显式能力缺口，
-  不因本次验收改变。
+- 能力边界：ClickHouse 没有统一外键元数据契约，因此 `relationships` 仍是显式能力缺口；
+  成本估算现已通过 `EXPLAIN ESTIMATE` 实现并完成本机复验。
 
 
 ### 2026-11-08 SQL Server 验收准备与阻塞
@@ -196,9 +196,9 @@ docker compose -f docker-compose.sqlserver.yml up -d
 - 使用 `scripts/provision_sqlserver.py` 幂等创建 `acceptance` 库、`customers`/`sales` 表、
   外键 `fk_sales_customer`、只读登录 `qpro_ro`（仅 `GRANT SELECT ON SCHEMA::dbo`）；种子数据含中文
   区域与 Decimal，零行 `UPDATE` 由数据库权限拒绝，不是应用护栏。
-- `scripts/connector_acceptance.py --connector sqlserver` 实际执行八项探针，结果 `8_passed`、
-  `external_validation=passed`；唯一能力缺口是尚未实现的 `cost_estimate`。脱敏报告为
-  `artifacts/connector-acceptance-sqlserver.json`。
+- `scripts/connector_acceptance.py --connector sqlserver` 初始八项探针为 `8_passed`；新增
+  `SHOWPLAN_XML` 成本探针后复验为 `9_passed`，脱敏报告为
+  `artifacts/connector-acceptance-sqlserver-cost-v9.json`。
 - 验收后容器已停止以释放内存；复验执行 `docker compose -f docker-compose.sqlserver.yml up -d`，
   再跑 `scripts/provision_sqlserver.py` 与验收命令即可。
 - 顺带修复 `scripts/connector_acceptance.py` 在中文 Windows 下用 GBK 解码 UTF-8 子进程输出、

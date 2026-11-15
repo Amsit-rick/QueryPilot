@@ -57,12 +57,24 @@ def _table_documents(columns: dict[str, list[str]], metadata_index: dict[str, di
         metadata = metadata_index.get(table.lower(), {})
         aliases = metadata.get("aliases", [])
         aliases = aliases if isinstance(aliases, list) else []
+        column_details = metadata.get("column_details", {})
+        column_details = column_details if isinstance(column_details, dict) else {}
+        column_metadata = []
+        for column, details in column_details.items():
+            if not isinstance(details, dict):
+                continue
+            column_metadata.extend([
+                str(column),
+                str(details.get("data_type", "")),
+                str(details.get("comment", "")),
+            ])
         parts = [
             table,
             *table_columns,
             *[str(alias) for alias in aliases],
             str(metadata.get("description", metadata.get("comment", ""))),
             str(metadata.get("business_domain", metadata.get("domain", ""))),
+            *column_metadata,
         ]
         documents[table] = " ".join(part for part in parts if part)
     return documents

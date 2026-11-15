@@ -25,7 +25,7 @@ class DataGatewayService:
  def schema_details(self,i,id):
   try:
    g=self._r(i,id)
-   if not g.capabilities.relationships or not hasattr(g, 'schema_details'): raise GatewayError('E_GATEWAY_UNSUPPORTED','数据网关不支持关系元数据',operation='schema_details')
+   if not hasattr(g, 'schema_details'): raise GatewayError('E_GATEWAY_UNSUPPORTED','数据网关不支持详细 Schema 元数据',operation='schema_details')
    value=g.schema_details()
    if not isinstance(value, GatewaySchemaDetails): raise TypeError
    visible=set(self.schema(i,id))

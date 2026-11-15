@@ -24,7 +24,7 @@ async function mockAuthenticatedApp(page, tasks = []) {
     if (path.endsWith('/auth/me')) return route.fulfill({json: {username: 'admin', roles: ['admin'], tenant_id: 'default', is_active: true}})
     if (path.endsWith('/data-sources')) return route.fulfill({json: [{id: 'sqlite-demo', name: 'SQLite 演示库', backend: 'sqlite', readonly: true}]})
     if (path.endsWith('/tasks')) return route.fulfill({json: tasks})
-    if (path.endsWith('/query')) return route.fulfill({json: {answer: '查询完成', columns: ['region', 'amount'], rows: [['华东', 100]], row_count: 1, sql: 'SELECT region, amount FROM sales LIMIT 1', trace_id: 'trace-login-e2e'}})
+    if (path.endsWith('/query')) return route.fulfill({json: {answer: '查询完成', columns: ['region', 'amount'], rows: [['华东', 100]], row_count: 1, sql: 'SELECT region, amount FROM sales LIMIT 1', trace_id: 'trace-login-e2e', usage: {input_tokens: 531, output_tokens: 64, total_tokens: 595, cost_cny: 0.001574, cost_cny_estimated: true, usage_source: 'provider'}}})
     if (path.endsWith('/auth/logout')) return route.fulfill({json: {ok: true}})
     return route.fulfill({status: 404, json: {detail: 'not mocked'}})
   })
@@ -73,6 +73,11 @@ test('登录后可执行查询并显示结果区域', async ({ page }) => {
   await page.getByPlaceholder(/查询各区域销售额/).fill('查询各区域销售额')
   await page.getByRole('button', { name: /执行查询/ }).click()
   await expect(page.locator('.result, .error')).toBeVisible({ timeout: 15000 })
+  await expect(page.locator('.usage-summary')).toContainText('输入 531')
+  await expect(page.locator('.usage-summary')).toContainText('输出 64')
+  await expect(page.locator('.usage-summary')).toContainText('共 595 Token')
+  await expect(page.locator('.usage-summary')).toContainText('约 ¥0.001574')
+  await expect(page.locator('.usage-summary')).toContainText('供应商实测')
 })
 
 test('可选择授权数据源并将选择结果用于查询', async ({ page }) => {

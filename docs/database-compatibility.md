@@ -1,11 +1,9 @@
 # 数据库兼容性验证
 
-已有适配器的 backend 是 SQLite、MySQL 8.4、PostgreSQL 16、CSV、DuckDB，以及
-2026-09-22 新增的实验连接器 Oracle、SQL Server、ClickHouse；Oracle/SQL Server 已补充外键关系元数据契约，
-Oracle 已通过独立 planner 账号开放成本估算，SQL Server、ClickHouse 的成本估算仍未开放。
-CSV/DuckDB 限制在配置根目录内读取。后三种已完成本地契约、驱动绑定和主查询链路回归；
-其中 Oracle 于 2026-11-07 在本机 19.3 实例完成八项真实探针，SQL Server、ClickHouse 仍未真实验收。
-这些连接器继续默认关闭并保持实验状态，本机 Oracle 通过不代表生产兼容。
+已有适配器的 backend 是 SQLite、MySQL 8.4、PostgreSQL 16、CSV、DuckDB，以及 Oracle、SQL Server、ClickHouse。
+后三类远程 Gateway 均已在本机隔离实例完成真实只读链路验收，并具备主动取消、有界连接池、深度 Schema、
+多 Schema / Database 限定名白名单和可选 TLS 失败关闭。Oracle 使用独立 Planner，SQL Server 使用
+`SHOWPLAN_XML`，ClickHouse 使用 `EXPLAIN ESTIMATE`。这些证据不代表生产 HA、企业证书、容量或真实业务准确率验收。
 配置、权限限制和真实测试入口见 [实验连接器说明](experimental-connectors.md)。
 
 ## Gateway 契约状态
@@ -19,12 +17,13 @@ CSV/DuckDB 限制在配置根目录内读取。后三种已完成本地契约、
 | `schema` | 可读取受权限过滤后的表和字段 |
 | `preview` | 可分页预览允许表的脱敏结果 |
 | `query` | 可执行经过只读和字段权限校验的查询 |
-| `cancel` | 是否支持取消正在执行的操作；当前适配器均为 `false` |
+| `cancel` | 是否支持取消正在执行的操作；Oracle、SQL Server、ClickHouse 为 `true` |
 | `health` | 可读取健康状态 |
 | `readonly` | Gateway 只读；当前契约固定为 `true` |
 
 当前工厂支持的 backend 标识为 `sqlite`、`mysql`、`postgres`/`postgresql`、`csv`、`duckdb`、
-`oracle`、`sqlserver` 和 `clickhouse`。实验连接器的列表元数据明确包含 `maturity=experimental`。
+`oracle`、`sqlserver` 和 `clickhouse`。远程连接器元数据分别暴露 `integration_status`、
+`production_status` 和 `capability_gaps`；当前目录标记为 `accepted_local / not_validated`，不会冒充生产验收。
 任何未支持的标识（例如 `unsupported`）都会在配置阶段返回
 `E_GATEWAY_UNSUPPORTED`，不会被静默忽略，也不会回退到其他数据库。能力矩阵和错误码属于契约
 验收，不等于目标数据库的生产兼容性证明；新增连接器仍需独立真实服务、只读拒绝和权限测试。

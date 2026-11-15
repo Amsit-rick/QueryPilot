@@ -26,13 +26,15 @@ def _usage_count(value) -> int:
         return 0
 
 
-async def generate_sql(question: str, schema: dict[str, set[str]], api_key: str, base_url: str, model: str, timeout: float, context: dict | None = None, dialect: str = "sqlite", cache_ttl: int = 300, cache_max_entries: int = 512, usage_callback: Callable[[dict[str, int]], None] | None = None, system_prompt: str = SYSTEM_PROMPT, prompt_version: str = PROMPT_VERSION) -> str | dict:
+async def generate_sql(question: str, schema: dict[str, set[str]], api_key: str, base_url: str, model: str, timeout: float, context: dict | None = None, dialect: str = "sqlite", cache_ttl: int = 300, cache_max_entries: int = 512, usage_callback: Callable[[dict[str, int | str]], None] | None = None, system_prompt: str = SYSTEM_PROMPT, prompt_version: str = PROMPT_VERSION) -> str | dict:
     if not api_key:
         raise ModelConfigurationError("未配置 MODEL_API_KEY；请传入 SQL，或在 .env 中配置 DeepSeek/OpenAI API Key 后重启服务")
     schema_text = "\n".join(f"{table}({', '.join(sorted(columns))})" for table, columns in schema.items())
     cache_key = hashlib.sha256(json.dumps([prompt_version, system_prompt, model, dialect, question, schema_text, context or {}], ensure_ascii=False, sort_keys=True).encode()).hexdigest()
     cached = get(cache_key)
     if cached:
+        if usage_callback:
+            usage_callback({"usage_source": "none", "local_cache_hit": 1})
         return cached
     circuit_url = settings.redis_url if settings.llm_circuit_backend == "redis" else None
     circuit_key = f"{base_url.rstrip('/')}/{model}"
@@ -57,8 +59,16 @@ async def generate_sql(question: str, schema: dict[str, set[str]], api_key: str,
             except (json.JSONDecodeError, ValueError):
                 generated = content.removeprefix("sql").strip()
             usage = body.get("usage") or {}
-            if usage_callback and isinstance(usage, dict):
-                usage_callback({"input_tokens": _usage_count(usage.get("prompt_tokens", usage.get("input_tokens", 0))), "output_tokens": _usage_count(usage.get("completion_tokens", usage.get("output_tokens", 0)))})
+            if usage_callback and isinstance(usage, dict) and any(
+                name in usage
+                for name in ("prompt_tokens", "input_tokens", "completion_tokens", "output_tokens")
+            ):
+                usage_callback({
+                    "input_tokens": _usage_count(usage.get("prompt_tokens", usage.get("input_tokens", 0))),
+                    "output_tokens": _usage_count(usage.get("completion_tokens", usage.get("output_tokens", 0))),
+                    "cache_hit_input_tokens": _usage_count(usage.get("prompt_cache_hit_tokens", usage.get("cache_read_input_tokens", 0))),
+                    "cache_miss_input_tokens": _usage_count(usage.get("prompt_cache_miss_tokens", usage.get("cache_creation_input_tokens", 0))),
+                })
         except Exception:
             record_failure(
                 key=circuit_key,

@@ -17,6 +17,8 @@ CONFIG = {
     "SQLSERVER_DATABASE": "acceptance",
     "SQLSERVER_USER": "acceptance",
     "SQLSERVER_PASSWORD": "sqlserver-secret",
+    "SQLSERVER_PLAN_USER": "acceptance_plan",
+    "SQLSERVER_PLAN_PASSWORD": "sqlserver-plan-secret",
     "CLICKHOUSE_HOST": "clickhouse.internal",
     "CLICKHOUSE_DATABASE": "acceptance",
     "CLICKHOUSE_USER": "acceptance",
@@ -85,24 +87,49 @@ def test_passing_connector_runs_only_its_stable_live_case(tmp_path):
     result = report["results"][0]
     assert result["passed"] is True
     assert result["external_validation"] == "passed"
-    assert result["pytest_summary"] == "8_passed"
+    assert result["pytest_summary"] == "9_passed"
     assert all(result["evidence"].values())
     assert result["evidence"]["cte_preaggregation"] is True
-    assert set(result["capability_gaps"]) == {"cost_estimate"}
+    assert result["capability_gaps"] == []
     assert result["capability_implementation"] == {
         "schema_details": True,
         "relationships": True,
-        "cost_estimate": False,
+        "cost_estimate": True,
         "cte_preaggregation": True,
     }
     assert result["exit_code"] == 0
     assert result["duration_ms"] >= 0
-    assert len(calls) == 8
+    assert len(calls) == 9
     for command, cwd, env, timeout in calls:
         assert command[3].endswith("[sqlserver]")
         assert cwd == tmp_path.resolve()
         assert env["RUN_SQLSERVER_TESTS"] == "1"
         assert timeout == 45
+    assert any("test_remote_cost_estimate[sqlserver]" in command[3] for command, *_ in calls)
+
+
+def test_clickhouse_acceptance_adds_scan_estimate_evidence(tmp_path):
+    calls = []
+
+    def runner(command, cwd, env, timeout):
+        calls.append(command)
+        return _completed(command)
+
+    report = build_report(
+        "clickhouse",
+        root=tmp_path,
+        environ=CONFIG,
+        runner=runner,
+        module_checker=lambda _: True,
+    )
+
+    result = report["results"][0]
+    assert result["pytest_summary"] == "9_passed"
+    assert result["evidence"]["cost_estimate"] is True
+    assert result["capability_implementation"]["cost_estimate"] is True
+    assert result["capability_gaps"] == ["relationships"]
+    assert len(calls) == 9
+    assert any("test_remote_cost_estimate[clickhouse]" in command[3] for command in calls)
 
 
 def test_oracle_acceptance_adds_real_cost_estimate_evidence(tmp_path):
@@ -177,7 +204,7 @@ def test_failure_report_keeps_only_counts_and_never_raw_output(tmp_path):
     assert result["executed"] is True
     assert result["passed"] is False
     assert result["external_validation"] == "failed"
-    assert result["pytest_summary"] == "8_failed"
+    assert result["pytest_summary"] == "9_failed"
     assert not any(result["evidence"].values())
     assert result["exit_code"] == 1
     assert result["duration_ms"] >= 0
@@ -198,7 +225,7 @@ def test_skipped_pytest_result_cannot_be_reported_as_passed(tmp_path):
     )
 
     assert report["results"][0]["passed"] is False
-    assert report["results"][0]["pytest_summary"] == "8_skipped"
+    assert report["results"][0]["pytest_summary"] == "9_skipped"
 
 
 def test_report_writer_replaces_target_with_machine_readable_json(tmp_path):

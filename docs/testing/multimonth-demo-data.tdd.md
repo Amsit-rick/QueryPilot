@@ -2,13 +2,14 @@
 
 ## 范围
 
-本轮针对 PostgreSQL 和本机 Oracle 的单月演示数据不足问题，补充可重复的多月分析数据，并保证 PostgreSQL 数据卷重新创建后可由标准多数据源启动流程自动恢复。
+本轮最初针对 PostgreSQL 和本机 Oracle 的单月演示数据不足问题，后续扩展为六类数据源统一公共 `sales` 分析基线，并保证本地容器或数据文件重新创建后可由标准多数据源启动流程恢复。
 
 ## 用户旅程
 
 - 作为演示用户，我希望 PostgreSQL 和 Oracle 至少包含连续 12 个月数据，以便趋势、环比和异常波动分析有足够时间点。
 - 作为本地开发者，我希望重复执行种数或重复启动项目时不会无限追加数据。
 - 作为运维人员，我希望通用启动脚本不自动对可能是远程实例的 Oracle 执行 SYSDBA 写入。
+- 作为测试人员，我希望六类数据库使用相同的销售行、月份、区域和金额，避免相同问题因数据差异得到不同答案。
 
 ## RED / GREEN
 
@@ -23,6 +24,9 @@
 | GREEN 2 | `.venv\Scripts\python.exe -m pytest tests\test_local_start_scripts.py tests\test_seed_multimonth_demo_data.py -q` | `12 passed` | Python `pg_isready` 有界重试、启动入口和两库幂等种数逻辑全部通过 |
 | 运行态 GREEN | `cmd.exe /d /c scripts\start_all_datasources.cmd` | 六数据源全部 `READY` | PostgreSQL 自动种数成功，随后 SQLite/MySQL/PostgreSQL/Oracle/SQL Server/ClickHouse 真实只读验收全部通过 |
 | 发布前 RED/GREEN | `.venv\Scripts\python.exe -m pytest tests\test_seed_multimonth_demo_data.py -q` | 缺少 `_resolve_oracle_home` 后修复为 `6 passed` | 公共脚本不再包含本机 Oracle 绝对路径，必须使用 `--oracle-home` 或 `ORACLE_HOME` |
+| 六库统一 RED | `.venv\Scripts\python.exe -m pytest tests\test_seed_multimonth_demo_data.py tests\test_local_start_scripts.py -q` | 测试收集失败，缺少 MySQL、SQL Server、ClickHouse 构建器 | 原脚本只能覆盖 PostgreSQL 和 Oracle，不能形成六库共同数据合同 |
+| 六库统一 GREEN | `.venv\Scripts\python.exe -m pytest tests\test_seed_multimonth_demo_data.py tests\test_local_start_scripts.py tests\test_provision_sqlserver.py tests\test_provision_clickhouse.py tests\test_verify_configured_datasources.py -q` | `29 passed` | 六库构建器、启动编排和现有连接器验收回归通过 |
+| ClickHouse 精度 RED/GREEN | 单项 ClickHouse 构建器测试 | `1 failed` 后 `1 passed` | 金额由浮点字面量转 Decimal 导致 `5168.90 -> 5168.89`，改为字符串精确转换 |
 
 ## 真实数据库证据
 
@@ -32,6 +36,10 @@
 | --- | ---: | ---: | --- | --- |
 | PostgreSQL 16 | 48 | 12 | 2025-12 | 2026-11 |
 | Oracle 19c | 48 | 12 | 2025-12 | 2026-11 |
+| SQLite | 48 | 12 | 2025-12 | 2026-11 |
+| MySQL 8 | 48 | 12 | 2025-12 | 2026-11 |
+| SQL Server 2022 | 48 | 12 | 2025-12 | 2026-11 |
+| ClickHouse 24.8 | 48 | 12 | 2025-12 | 2026-11 |
 
 实际应用链路提交“分析每月销售趋势并找出波动最大的月份”时，两库均返回 12 行月度聚合并生成趋势结果。当前意图路由把“波动”归为 `TREND`，因此 API 返回趋势但不会同时填充异常点列表；这属于后续分析意图增强项，不影响本轮数据完整性。
 
@@ -41,4 +49,5 @@
 - Oracle 使用 `MERGE`，仅允许经过校验的 PDB 和 Schema Owner 标识符。
 - 通用启动脚本不自动调用 Oracle SYSDBA；本机种数必须由管理员显式执行。
 - 本轮数据是确定性模拟数据，不代表真实企业业务分布或模型生产准确率。
+- `--replace-sales` 只允许用于已确认的本地演示实例；它会替换目标 `sales` 数据，因此不应用于企业真实库。
 - 未创建 TDD checkpoint commit：当前工作区包含大量既有未提交修改，且用户未授权提交或推送。

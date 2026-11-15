@@ -33,6 +33,8 @@ def _extract_usage(value: Any) -> dict[str, int]:
         usage = metadata.get("token_usage", {}) if isinstance(metadata, dict) else {}
     if not isinstance(usage, dict):
         return {}
+    if not any(name in usage for name in ("input_tokens", "prompt_tokens", "output_tokens", "completion_tokens")):
+        return {}
     def count(*names: str) -> int:
         for name in names:
             if name not in usage:
@@ -42,7 +44,22 @@ def _extract_usage(value: Any) -> dict[str, int]:
             except (TypeError, ValueError, OverflowError):
                 continue
         return 0
-    return {"input_tokens": count("input_tokens", "prompt_tokens"), "output_tokens": count("output_tokens", "completion_tokens")}
+    details = usage.get("input_token_details") if isinstance(usage.get("input_token_details"), dict) else {}
+    return {
+        "input_tokens": count("input_tokens", "prompt_tokens"),
+        "output_tokens": count("output_tokens", "completion_tokens"),
+        "cache_hit_input_tokens": count("prompt_cache_hit_tokens", "cache_read_input_tokens") or _usage_detail(details, "cache_read", "cache_hit"),
+        "cache_miss_input_tokens": count("prompt_cache_miss_tokens", "cache_creation_input_tokens") or _usage_detail(details, "cache_miss", "cache_creation"),
+    }
+
+
+def _usage_detail(details: dict[str, Any], *names: str) -> int:
+    for name in names:
+        try:
+            return max(0, int(details.get(name, 0) or 0))
+        except (TypeError, ValueError, OverflowError):
+            continue
+    return 0
 
 
 async def generate_sql(*, generator: Any, question: str, schema: dict[str, set[str]], context: dict | None, dialect: str, usage_callback: Callable[[dict[str, int]], None] | None = None) -> SqlPlan:

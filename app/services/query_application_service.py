@@ -31,7 +31,7 @@ from ..agent.recovery_runtime import build_checkpoint_writer
 from ..agent.state import QueryAgentState
 from ..approval_store import create_approval
 from ..audit import write_audit
-from ..budget import cost_for_tokens, enforce_budget, estimate_query_cost, estimate_query_usage, settle_budget
+from ..budget import build_usage_summary, cost_for_tokens, enforce_budget, estimate_query_cost, estimate_query_usage, settle_budget
 from ..config import settings
 from ..datasources import datasource_schema_details, get_datasource, list_datasources, role_can_use
 from ..domain.data_gateway import GatewayError, GatewayQuery
@@ -306,17 +306,42 @@ class QueryApplicationService:
         estimated_input_tokens, estimated_output_tokens = estimate_query_usage(request.question, request.sql)
         estimated_cost = estimate_query_cost(request.question, request.sql)
         provider_usage: dict[str, int] = {}
-        model_invoked = False
-        def record_usage(value: dict[str, int]) -> None:
-            provider_usage["input_tokens"] = provider_usage.get("input_tokens", 0) + max(0, int(value.get("input_tokens", 0) or 0))
-            provider_usage["output_tokens"] = provider_usage.get("output_tokens", 0) + max(0, int(value.get("output_tokens", 0) or 0))
+        model_invocation_count = 0
+        model_usage_skipped_count = 0
+        usage_model = settings.model_name
+        def record_usage(value: dict[str, int | str]) -> None:
+            nonlocal model_usage_skipped_count
+            if value.get("usage_source") == "none":
+                model_usage_skipped_count += 1
+                return
+            for field in ("input_tokens", "output_tokens", "cache_hit_input_tokens", "cache_miss_input_tokens"):
+                provider_usage[field] = provider_usage.get(field, 0) + max(0, int(value.get(field, 0) or 0))
+        def current_usage_summary() -> dict[str, object]:
+            if provider_usage:
+                source = "provider"
+                input_tokens = provider_usage.get("input_tokens", 0)
+                output_tokens = provider_usage.get("output_tokens", 0)
+            elif model_invocation_count == 0 or model_usage_skipped_count >= model_invocation_count:
+                source = "none"
+                input_tokens = 0
+                output_tokens = 0
+            else:
+                source = "estimate"
+                input_tokens = estimated_input_tokens
+                output_tokens = estimated_output_tokens
+            return build_usage_summary(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cache_hit_input_tokens=provider_usage.get("cache_hit_input_tokens", 0),
+                cache_miss_input_tokens=provider_usage.get("cache_miss_input_tokens", 0),
+                usage_source=source,
+                model=usage_model,
+            )
         def current_usage() -> tuple[int, int, float, str]:
-            if not model_invoked:
-                return 0, 0, 0.0, "none"
-            input_tokens = provider_usage.get("input_tokens", estimated_input_tokens)
-            output_tokens = provider_usage.get("output_tokens", estimated_output_tokens)
-            source = "provider" if provider_usage else "estimate"
-            return input_tokens, output_tokens, cost_for_tokens(input_tokens, output_tokens), source
+            usage = current_usage_summary()
+            input_tokens = int(usage["input_tokens"])
+            output_tokens = int(usage["output_tokens"])
+            return input_tokens, output_tokens, cost_for_tokens(input_tokens, output_tokens), str(usage["usage_source"])
         try:
             enforce_budget(estimated_cost)
         except ValueError as exc:
@@ -341,6 +366,7 @@ class QueryApplicationService:
         task_service = get_task_service()
         tenant_id = identity.get("tenant_id", "default")
         runtime_model = get_model_operations_service().resolve_runtime(tenant_id)
+        usage_model = runtime_model.model
         owner_id = str(identity.get("subject", ""))
         existing_detail = None
         task = None
@@ -610,7 +636,7 @@ class QueryApplicationService:
             )
 
             async def generate_for_graph(question: str):
-                nonlocal model_invoked
+                nonlocal model_invocation_count
                 if ("库存" in question and ("补货" in question or "低于" in question)
                         and "inventory" in allowed_semantic_schema and "products" in allowed_semantic_schema):
                     return "SELECT p.name, i.warehouse, i.available_qty, i.reorder_point FROM inventory i JOIN products p ON p.id = i.product_id WHERE i.available_qty < i.reorder_point"
@@ -620,7 +646,7 @@ class QueryApplicationService:
                     if "区域" in question:
                         return "SELECT o.region, SUM(p.amount) AS pending_amount FROM payments p JOIN enterprise_orders o ON o.id = p.order_id WHERE p.status = 'pending' GROUP BY o.region ORDER BY pending_amount DESC"
                 ensure_safe_generation_prompt(question)
-                model_invoked = True
+                model_invocation_count += 1
                 generated = await agent_service.generate(
                     question=question,
                     schema=generation_schema,
@@ -698,6 +724,14 @@ class QueryApplicationService:
                 context["relationships"] = retrieval.relationships
                 context["join_paths"] = list(retrieval.join_paths)
                 context["ambiguous_join_paths"] = list(retrieval.ambiguous_paths)
+                raw_tables = raw_schema_details.get("tables", {})
+                if isinstance(raw_tables, dict):
+                    metadata_by_name = {str(name).lower(): value for name, value in raw_tables.items()}
+                    context["schema_metadata"] = {
+                        table: metadata_by_name[table.lower()]
+                        for table in retrieval.selected_tables
+                        if table.lower() in metadata_by_name and isinstance(metadata_by_name[table.lower()], dict)
+                    }
                 authorized_examples = []
                 for example in context.get("examples", []):
                     try:
@@ -749,8 +783,8 @@ class QueryApplicationService:
                 )
                 if base_critic_invoke is not None:
                     async def critic_invoke(prompt: str):
-                        nonlocal model_invoked
-                        model_invoked = True
+                        nonlocal model_invocation_count
+                        model_invocation_count += 1
                         return await base_critic_invoke(prompt)
             rollout_decision = get_reflection_rollout_service().resolve(
                 tenant_id=str(identity.get("tenant_id", "default")),
@@ -870,6 +904,7 @@ class QueryApplicationService:
                 task_service.transition(task.id, tenant_id, "approval_required")
                 task_service.append_event(task_id=task.id, kind="approval_required", payload={"trace_id": trace_id, "approval_id": approval_request["id"], "trigger": trigger, "reasons": list(reasons)})
                 response = {"trace_id": trace_id, "task_id": task.id, "status": "approval_required", "approval_id": approval_request["id"], "sql": approval_sql, "approval_trigger": trigger, "approval_reasons": list(reasons), "message": "质量门禁要求人工确认" if trigger == "automatic" else "查询需要人工确认"}
+                response["usage"] = current_usage_summary()
                 if branch_origin:
                     response["branch_origin"] = branch_origin
                 return response
@@ -1121,7 +1156,9 @@ class QueryApplicationService:
             step_sequence += 1
         task_service.append_step(task_id=task.id, kind="explain_result", sequence=step_sequence, status="completed", output=graph_result["state"].explanation)
         step_sequence += 1
+        usage = current_usage_summary()
         artifact = graph_result["state"].artifacts[0]
+        artifact["metadata"] = {**artifact["metadata"], "usage": usage}
         task_service.ensure_artifact(task_id=task.id, kind=artifact["kind"], name=artifact["name"], idempotency_key=artifact["idempotency_key"], metadata=artifact["metadata"])
         artifact_keys = [artifact["idempotency_key"]]
         chart_artifact = build_chart_artifact_definition(
@@ -1146,7 +1183,7 @@ class QueryApplicationService:
             )
         actual_input_tokens, actual_output_tokens, actual_cost, usage_source = current_usage()
         write_audit(settings.audit_log_path, trace_id=trace_id, task_id=task.id, tenant_id=tenant_id, sql=sql, duration_ms=int((perf_counter() - started) * 1000), row_count=len(rows), truncated=truncated, large_result=len(rows) >= settings.large_result_row_threshold, model=runtime_model.model, prompt_version=runtime_model.prompt_version, dataset_version=context["catalog_version"], input_tokens=actual_input_tokens, output_tokens=actual_output_tokens, cost_usd=actual_cost, usage_source=usage_source, actor_id=str(identity.get("subject")), cost_backend=getattr(cost_estimate, "backend", None), cost_supported=getattr(cost_estimate, "supported", None), estimated_rows=getattr(cost_estimate, "estimated_rows", None), estimated_cost=getattr(cost_estimate, "estimated_cost", None), full_scan=getattr(cost_estimate, "full_scan", None), index_used=getattr(cost_estimate, "index_used", None))
-        response = {"trace_id": trace_id, "task_id": task.id, "question": request.question, "follow_up": request.follow_up, "sql": sql, "columns": columns, "rows": rows, "row_count": len(rows), "truncated": truncated, "answer": graph_result["state"].explanation["summary"], "analysis": graph_result["state"].derived_analysis or None, "skill": resolved_context.get("skill")}
+        response = {"trace_id": trace_id, "task_id": task.id, "question": request.question, "follow_up": request.follow_up, "sql": sql, "columns": columns, "rows": rows, "row_count": len(rows), "truncated": truncated, "answer": graph_result["state"].explanation["summary"], "analysis": graph_result["state"].derived_analysis or None, "skill": resolved_context.get("skill"), "usage": usage}
         if branch_origin:
             response["branch_origin"] = branch_origin
         if str(identity.get("subject", "")).isdigit() and request.question.strip() not in {"查询", "查询数据", "测试查询"}:

@@ -36,10 +36,18 @@ def build_gateway_registry(datasources):
                     **common, allowed_tables=datasource.get("allowed_tables")
                 )
             elif backend in REMOTE_GATEWAYS:
-                remote_options = {"allowed_tables": datasource.get("allowed_tables")}
+                remote_options = {
+                    "allowed_tables": datasource.get("allowed_tables"),
+                    "integration_status": datasource.get("integration_status", "implemented"),
+                    "production_status": datasource.get("production_status", "not_validated"),
+                    "capability_gaps": datasource.get("capability_gaps", []),
+                    "namespaces": datasource.get("namespaces", []),
+                }
                 if backend == "oracle" and "schema_owner" in datasource:
                     remote_options["schema_owner"] = datasource.get("schema_owner")
                 if backend == "oracle" and "cost_estimate_enabled" in datasource:
+                    remote_options["cost_estimate_enabled"] = datasource.get("cost_estimate_enabled")
+                if backend == "sqlserver" and "cost_estimate_enabled" in datasource:
                     remote_options["cost_estimate_enabled"] = datasource.get("cost_estimate_enabled")
                 gateway = REMOTE_GATEWAYS[backend](**common, **remote_options)
             elif backend == "csv":

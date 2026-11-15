@@ -22,6 +22,34 @@ def test_rejects_unknown_table():
     assert exc.value.code == "E_HALLUCINATED_FIELD"
 
 
+def test_explicitly_authorized_schema_qualified_table_is_allowed():
+    sql = validate_sql(
+        "SELECT amount FROM finance.sales",
+        {"finance.sales": {"amount"}},
+        dialect="sqlserver",
+    )
+
+    assert sql == "SELECT amount FROM finance.sales"
+
+
+def test_unauthorized_or_three_part_table_reference_is_rejected():
+    with pytest.raises(QueryError) as unauthorized:
+        validate_sql(
+            "SELECT amount FROM private.sales",
+            {"finance.sales": {"amount"}},
+            dialect="sqlserver",
+        )
+    assert unauthorized.value.code == "E_READONLY_VIOLATION"
+
+    with pytest.raises(QueryError) as cross_database:
+        validate_sql(
+            "SELECT amount FROM other.finance.sales",
+            {"finance.sales": {"amount"}},
+            dialect="sqlserver",
+        )
+    assert cross_database.value.code == "E_READONLY_VIOLATION"
+
+
 @pytest.mark.parametrize(("sql", "code"), [
     ("SELECT * FROM sales JOIN customers", "E_CARTESIAN_JOIN"),
     ("SELECT region FROM sales JOIN customers ON sales.region = customers.region", "E_AMBIGUOUS_FIELD"),

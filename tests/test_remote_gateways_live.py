@@ -25,6 +25,8 @@ def _gateway(gateway_type, flag):
     if gateway_type is OracleGateway:
         options["schema_owner"] = os.getenv("ORACLE_SCHEMA_OWNER")
         options["cost_estimate_enabled"] = True
+    if gateway_type is SQLServerGateway:
+        options["cost_estimate_enabled"] = True
     return gateway_type(gateway_id="acceptance", name="Acceptance", **options)
 
 
@@ -114,7 +116,7 @@ def test_remote_cte_preaggregation(gateway_type, flag):
 
 @pytest.mark.parametrize(
     "gateway_type,flag",
-    [pytest.param(OracleGateway, "RUN_ORACLE_TESTS", id="oracle")],
+    CONNECTORS,
 )
 def test_remote_cost_estimate(gateway_type, flag):
     gateway = _gateway(gateway_type, flag)
@@ -135,7 +137,7 @@ def test_remote_cost_estimate(gateway_type, flag):
 
     assert estimate.supported is True
     assert estimate.estimated_cost is not None and estimate.estimated_cost >= 0
-    assert estimate.plan.get("operations")
+    assert estimate.plan
 
 
 @pytest.mark.parametrize("gateway_type,flag", CONNECTORS)

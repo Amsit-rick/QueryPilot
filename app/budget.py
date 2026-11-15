@@ -52,6 +52,53 @@ def cost_for_tokens(input_tokens: int, output_tokens: int) -> float:
     return round((max(0, int(input_tokens)) + max(0, int(output_tokens))) / 1000 * settings.cost_per_1k_tokens_usd, 8)
 
 
+def build_usage_summary(
+    *,
+    input_tokens: int,
+    output_tokens: int,
+    cache_hit_input_tokens: int = 0,
+    cache_miss_input_tokens: int = 0,
+    usage_source: str = "none",
+    model: str = "",
+) -> dict[str, object]:
+    """Build a user-facing token and approximate CNY cost receipt.
+
+    Token counts may come from the provider or from the local conservative
+    estimator. CNY is always an estimate based on configurable rates; when
+    provider cache details are incomplete, unclassified input is priced as a
+    cache miss so the UI does not understate the likely cost.
+    """
+    source = usage_source if usage_source in {"provider", "estimate", "none"} else "none"
+    safe_input = max(0, int(input_tokens or 0))
+    safe_output = max(0, int(output_tokens or 0))
+    if source == "none":
+        safe_input = 0
+        safe_output = 0
+
+    safe_hit = min(safe_input, max(0, int(cache_hit_input_tokens or 0)))
+    reported_miss = max(0, int(cache_miss_input_tokens or 0))
+    safe_miss = min(max(0, safe_input - safe_hit), reported_miss)
+    safe_miss += max(0, safe_input - safe_hit - safe_miss)
+
+    cost_cny = (
+        safe_hit * settings.model_input_cache_hit_cny_per_million
+        + safe_miss * settings.model_input_cache_miss_cny_per_million
+        + safe_output * settings.model_output_cny_per_million
+    ) / 1_000_000
+    return {
+        "input_tokens": safe_input,
+        "output_tokens": safe_output,
+        "total_tokens": safe_input + safe_output,
+        "cache_hit_input_tokens": safe_hit,
+        "cache_miss_input_tokens": safe_miss,
+        "cost_cny": round(cost_cny, 8),
+        "cost_cny_estimated": source != "none",
+        "usage_source": source,
+        "model": str(model or "")[:128],
+        "pricing_basis": str(settings.model_pricing_basis or "configured")[:128],
+    }
+
+
 def _enforce_redis(estimated_cost: float, redis_url: str) -> None:
     try:
         import redis

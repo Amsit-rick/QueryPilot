@@ -89,6 +89,37 @@ def test_primary_foreign_and_semantic_columns_survive_column_reduction():
     assert all(len(columns) <= 4 for columns in result.schema.values())
 
 
+def test_deep_column_comments_participate_in_large_schema_retrieval():
+    schema = {f"table_{index}": ["opaque_column"] for index in range(60)}
+    schema["sales_fact"] = ["metric_001"]
+    details = {
+        "tables": {
+            "sales_fact": {
+                "columns": ["metric_001"],
+                "column_details": {
+                    "metric_001": {
+                        "data_type": "DECIMAL(18,2)",
+                        "nullable": False,
+                        "comment": "销售金额",
+                        "ordinal": 1,
+                    }
+                },
+            }
+        }
+    }
+
+    result = retrieve_schema(
+        "统计销售金额",
+        schema,
+        schema_details=details,
+        table_threshold=50,
+        max_tables=5,
+    )
+
+    assert "sales_fact" in result.selected_tables
+    assert "bm25" in result.retrieval_stats["table_scores"]["sales_fact"]["reasons"]
+
+
 def test_composite_relationship_columns_are_kept():
     schema = {
         "line_items": {"tenant_id", "order_id", *(f"value_{index}" for index in range(50))},

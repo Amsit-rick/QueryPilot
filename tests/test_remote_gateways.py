@@ -1,9 +1,12 @@
 from decimal import Decimal
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 
 import pytest
 from sqlglot import exp
 
-from app.domain.data_gateway import GatewayError, GatewayQuery
+from app.config import settings
+from app.domain.data_gateway import GatewayError, GatewayQuery, GatewaySchemaDetails
 from app.gateways.clickhouse_gateway import ClickHouseGateway
 from app.gateways.oracle_gateway import OracleGateway
 from app.gateways.sqlserver_gateway import SQLServerGateway
@@ -24,7 +27,9 @@ class Cursor:
     def execute(self, sql, params=None, **options):
         self.connection.calls.append((sql, params))
         self.connection.execute_options = options
-        if sql == self.connection.schema_sql:
+        if sql.upper().startswith("EXPLAIN ESTIMATE"):
+            self.rows = [("acceptance", "sales", 1, 3, 1)]
+        elif sql == self.connection.schema_sql:
             self.rows = [
                 ("sales", "amount"),
                 ("sales", "region"),
@@ -79,7 +84,11 @@ def test_remote_contract_health_schema_query_and_cleanup(gateway_type):
     instance, connections, calls = gateway(gateway_type)
     assert instance.health().status == "healthy"
     assert instance.schema() == {"sales": ["amount", "region", "sold_at"]}
-    assert instance.descriptor.metadata["maturity"] == "experimental"
+    assert instance.descriptor.metadata == {
+        "integration_status": "implemented",
+        "production_status": "not_validated",
+        "capability_gaps": [],
+    }
     result = instance.query(GatewayQuery("SELECT amount FROM sales WHERE region=:region", {"region": "east"}, max_rows=1, offset=1, operation_id="query-1"))
     assert result.rows == [[Decimal("2.50")]] and result.truncated
     assert result.operation_id == "query-1"
@@ -204,13 +213,57 @@ def test_remote_role_denial_happens_before_opening_connection():
 
 
 @pytest.mark.parametrize("gateway_type", GATEWAYS)
-def test_factory_lists_experimental_connector_without_drivers(gateway_type):
+def test_factory_lists_remote_connector_without_loading_drivers(gateway_type):
     from app.gateways.factory import build_gateway_registry
     from app import datasources
     instance = build_gateway_registry([{"id": "remote", "backend": gateway_type.backend}]).require("remote")
     assert instance.descriptor.backend == gateway_type.backend
-    assert instance.descriptor.metadata["external_validation"] == "not_run"
+    assert instance.descriptor.metadata == {
+        "integration_status": "implemented",
+        "production_status": "not_validated",
+        "capability_gaps": [],
+    }
     assert gateway_type.backend in datasources.SUPPORTED_BACKENDS
+
+
+@pytest.mark.parametrize(
+    ("backend", "capability_gaps"),
+    [("oracle", []), ("sqlserver", []), ("clickhouse", ["relationships"])],
+)
+def test_factory_exposes_local_acceptance_without_claiming_production(backend, capability_gaps):
+    from app.gateways.factory import build_gateway_registry
+
+    instance = build_gateway_registry([{
+        "id": backend,
+        "backend": backend,
+        "integration_status": "accepted_local",
+        "production_status": "not_validated",
+        "capability_gaps": capability_gaps,
+    }]).require(backend)
+
+    assert instance.descriptor.metadata == {
+        "integration_status": "accepted_local",
+        "production_status": "not_validated",
+        "capability_gaps": capability_gaps,
+    }
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"integration_status": "production"},
+        {"production_status": "accepted_local"},
+        {"capability_gaps": "relationships"},
+        {"capability_gaps": ["relationships", "password"]},
+    ],
+)
+def test_remote_connector_rejects_invalid_maturity_metadata(metadata):
+    from app.gateways.factory import build_gateway_registry
+
+    with pytest.raises(GatewayError) as error:
+        build_gateway_registry([{"id": "clickhouse", "backend": "clickhouse", **metadata}])
+
+    assert error.value.code == "E_GATEWAY_CONFIG"
 
 
 def test_factory_passes_oracle_schema_owner_to_gateway(monkeypatch):
@@ -281,6 +334,48 @@ def test_clickhouse_connection_does_not_combine_readonly_with_timeout(monkeypatc
 
     assert "readonly" not in captured["settings"]
     assert "max_execution_time" in captured["settings"]
+    assert captured["settings"]["max_memory_usage"] > 0
+    assert captured["settings"]["max_rows_to_read"] > 0
+    assert captured["settings"]["max_bytes_to_read"] > 0
+    assert captured["settings"]["max_threads"] > 0
+
+
+def test_sqlserver_tls_requirement_is_forwarded_to_driver(monkeypatch):
+    pymssql = pytest.importorskip("pymssql")
+    captured = {}
+
+    monkeypatch.setattr(pymssql, "connect", lambda **kwargs: captured.update(kwargs) or object())
+    monkeypatch.setattr(settings, "sqlserver_host", "db.example")
+    monkeypatch.setattr(settings, "sqlserver_user", "reader")
+    monkeypatch.setattr(settings, "sqlserver_password", "secret")
+    monkeypatch.setattr(settings, "sqlserver_database", "analytics")
+    monkeypatch.setattr(settings, "sqlserver_tls_required", True)
+
+    SQLServerGateway.default_connect()
+
+    assert captured["encryption"] == "require"
+
+
+def test_oracle_tls_requirement_rejects_plain_dsn(monkeypatch):
+    monkeypatch.setattr(settings, "oracle_dsn", "db.example:1521/ORCLPDB1")
+    monkeypatch.setattr(settings, "oracle_user", "reader")
+    monkeypatch.setattr(settings, "oracle_password", "secret")
+    monkeypatch.setattr(settings, "oracle_tls_required", True)
+
+    with pytest.raises(RuntimeError, match="TLS configuration missing"):
+        OracleGateway.default_connect()
+
+
+def test_clickhouse_tls_requirement_fails_closed(monkeypatch):
+    monkeypatch.setattr(settings, "clickhouse_host", "db.example")
+    monkeypatch.setattr(settings, "clickhouse_user", "reader")
+    monkeypatch.setattr(settings, "clickhouse_password", "secret")
+    monkeypatch.setattr(settings, "clickhouse_database", "analytics")
+    monkeypatch.setattr(settings, "clickhouse_tls_required", True)
+    monkeypatch.setattr(settings, "clickhouse_secure", False)
+
+    with pytest.raises(RuntimeError, match="TLS configuration missing"):
+        ClickHouseGateway.default_connect()
 
 
 def test_clickhouse_driver_preserves_literals_and_binds_without_a_server():
@@ -412,7 +507,10 @@ def test_remote_schema_details_groups_and_filters_database_relationships(gateway
     instance = gateway_type(gateway_id="remote", name="Remote", allowed_tables=["sales", "customers"], connect=connect)
     details = instance.schema_details()
 
-    assert details.tables == {"sales": ["customer_id"], "customers": ["id"]}
+    assert details.tables == {
+        "sales": {"columns": ["customer_id"], "primary_key": [], "indexed_columns": [], "column_details": {}},
+        "customers": {"columns": ["id"], "primary_key": [], "indexed_columns": [], "column_details": {}},
+    }
     assert len(details.relationships) == 1
     assert details.relationships[0].from_table == "sales"
     assert details.relationships[0].from_columns == ["customer_id"]
@@ -427,6 +525,178 @@ def test_remote_schema_details_groups_and_filters_database_relationships(gateway
     exposed = service.schema_details({}, "remote")
     assert exposed.relationships[0].from_table == "sales"
     assert exposed.tables == details.tables
+
+
+@pytest.mark.parametrize("gateway_type", GATEWAYS)
+def test_remote_schema_details_exposes_typed_columns_keys_indexes_and_comments(gateway_type):
+    class DeepCursor:
+        def __init__(self):
+            self.rows = []
+
+        def execute(self, sql, params=None, **options):
+            if sql == gateway_type.schema_sql:
+                self.rows = [("sales", "id"), ("sales", "amount")]
+            elif sql == gateway_type.deep_schema_sql:
+                self.rows = [
+                    ("sales", "id", "BIGINT", False, "销售主键", 1, True, True, "销售事实表"),
+                    ("sales", "amount", "DECIMAL(18,2)", True, "销售额", 2, False, True, "销售事实表"),
+                ]
+            elif sql == gateway_type.relationship_sql:
+                self.rows = []
+            else:
+                self.rows = []
+
+        def fetchall(self):
+            rows, self.rows = self.rows, []
+            return rows
+
+        def close(self):
+            pass
+
+    class DeepConnection:
+        def cursor(self):
+            return DeepCursor()
+
+        def close(self):
+            pass
+
+    gateway = gateway_type(
+        gateway_id="remote",
+        name="Remote",
+        allowed_tables=["sales"],
+        connect=DeepConnection,
+    )
+
+    details = gateway.schema_details()
+
+    assert details.tables == {
+        "sales": {
+            "columns": ["id", "amount"],
+            "primary_key": ["id"],
+            "indexed_columns": ["id", "amount"],
+            "column_details": {
+                "id": {"data_type": "BIGINT", "nullable": False, "comment": "销售主键", "ordinal": 1},
+                "amount": {"data_type": "DECIMAL(18,2)", "nullable": True, "comment": "销售额", "ordinal": 2},
+            },
+            "comment": "销售事实表",
+        }
+    }
+
+
+def test_clickhouse_schema_details_remains_available_without_relationship_capability():
+    from app.gateways.registry import GatewayRegistry
+    from app.services.data_gateway_service import DataGatewayService
+
+    class SchemaCursor:
+        def __init__(self):
+            self.rows = []
+
+        def execute(self, sql, params=None):
+            self.rows = [("sales", "id")] if sql == ClickHouseGateway.schema_sql else []
+
+        def fetchall(self):
+            rows, self.rows = self.rows, []
+            return rows
+
+        def close(self):
+            pass
+
+    class SchemaConnection:
+        def cursor(self):
+            return SchemaCursor()
+
+        def close(self):
+            pass
+
+    gateway = ClickHouseGateway(gateway_id="clickhouse", name="ClickHouse", connect=SchemaConnection)
+    service = DataGatewayService(GatewayRegistry([gateway]), can_use=lambda identity, descriptor: True)
+
+    details = service.schema_details({}, "clickhouse")
+
+    assert isinstance(details, GatewaySchemaDetails)
+    assert details.relationships == []
+
+
+def test_sqlserver_multi_schema_uses_qualified_allowlist_and_deep_metadata():
+    class MultiSchemaCursor:
+        description = [("amount",)]
+
+        def __init__(self):
+            self.rows = []
+
+        def execute(self, sql, params=None):
+            if sql == SQLServerGateway.multi_schema_sql:
+                self.rows = [
+                    ("finance", "sales", "id"),
+                    ("finance", "sales", "amount"),
+                    ("finance", "sales", "customer_id"),
+                    ("crm", "customers", "id"),
+                    ("private", "secrets", "value"),
+                ]
+            elif sql == SQLServerGateway.multi_deep_schema_sql:
+                self.rows = [
+                    ("finance", "sales", "id", "bigint", False, "", 1, True, True, ""),
+                    ("finance", "sales", "amount", "decimal", False, "销售额", 2, False, True, ""),
+                    ("finance", "sales", "customer_id", "bigint", False, "", 3, False, True, ""),
+                    ("crm", "customers", "id", "bigint", False, "", 1, True, True, ""),
+                ]
+            elif sql == SQLServerGateway.multi_relationship_sql:
+                self.rows = [
+                    ("finance", "sales", "customer_id", "crm", "customers", "id", "fk_sales_customer", 1),
+                ]
+            else:
+                self.rows = [(Decimal("12.50"),)]
+
+        def fetchall(self):
+            rows, self.rows = self.rows, []
+            return rows
+
+        def fetchmany(self, size):
+            rows, self.rows = self.rows[:size], self.rows[size:]
+            return rows
+
+        def close(self):
+            pass
+
+    class MultiSchemaConnection:
+        def cursor(self):
+            return MultiSchemaCursor()
+
+        def close(self):
+            pass
+
+    gateway = SQLServerGateway(
+        gateway_id="sqlserver",
+        name="SQL Server",
+        allowed_tables=["finance.sales", "crm.customers"],
+        namespaces=["finance", "crm"],
+        connect=MultiSchemaConnection,
+    )
+
+    assert gateway.schema() == {
+        "finance.sales": ["id", "amount", "customer_id"],
+        "crm.customers": ["id"],
+    }
+    details = gateway.schema_details()
+    assert details.tables["finance.sales"]["primary_key"] == ["id"]
+    assert details.tables["finance.sales"]["column_details"]["amount"]["comment"] == "销售额"
+    assert len(details.relationships) == 1
+    assert details.relationships[0].from_table == "finance.sales"
+    assert details.relationships[0].to_table == "crm.customers"
+    sql, _ = gateway.compile_query(GatewayQuery("SELECT amount FROM finance.sales"))
+    assert "finance" in sql.lower() and "sales" in sql.lower()
+
+
+def test_multi_namespace_requires_qualified_allowed_tables():
+    with pytest.raises(GatewayError) as error:
+        SQLServerGateway(
+            gateway_id="sqlserver",
+            name="SQL Server",
+            allowed_tables=["sales"],
+            namespaces=["finance", "crm"],
+        )
+
+    assert error.value.code == "E_GATEWAY_CONFIG"
 
 
 def test_oracle_schema_owner_reads_all_metadata_and_switches_query_schema():
@@ -667,7 +937,302 @@ def test_oracle_cost_estimate_hides_planner_errors():
     assert "oracle.internal" not in str(error.value)
 
 
+def test_sqlserver_cost_estimate_uses_showplan_xml_without_executing_query():
+    showplan = """<?xml version="1.0" encoding="utf-16"?>
+    <ShowPlanXML xmlns="http://schemas.microsoft.com/sqlserver/2004/07/showplan">
+      <BatchSequence><Batch><Statements>
+        <StmtSimple StatementEstRows="3" StatementSubTreeCost="0.42">
+          <QueryPlan>
+            <RelOp NodeId="0" PhysicalOp="Clustered Index Scan" LogicalOp="Clustered Index Scan" EstimateRows="3" EstimatedTotalSubtreeCost="0.42">
+              <IndexScan><Object Database="acceptance" Schema="dbo" Table="sales" Index="PK_sales" /></IndexScan>
+            </RelOp>
+          </QueryPlan>
+        </StmtSimple>
+      </Statements></Batch></BatchSequence>
+    </ShowPlanXML>"""
+
+    class PlanCursor:
+        description = [("Microsoft SQL Server 2005 XML Showplan",)]
+
+        def __init__(self, connection):
+            self.connection = connection
+            self.rows = []
+
+        def execute(self, sql, params=None, **_options):
+            self.connection.calls.append((sql, params))
+            normalized = " ".join(sql.split()).upper()
+            if normalized.startswith("SELECT"):
+                self.rows = [(showplan,)]
+
+        def fetchall(self):
+            rows, self.rows = self.rows, []
+            return rows
+
+        def close(self):
+            self.connection.cursor_closed = True
+
+    class PlanConnection:
+        def __init__(self):
+            self.calls = []
+            self.closed = False
+            self.cursor_closed = False
+
+        def cursor(self):
+            return PlanCursor(self)
+
+        def close(self):
+            self.closed = True
+
+    planner_connections = []
+
+    def plan_connect():
+        connection = PlanConnection()
+        planner_connections.append(connection)
+        return connection
+
+    gateway = SQLServerGateway(
+        gateway_id="sqlserver",
+        name="SQL Server",
+        allowed_tables=["sales"],
+        connect=lambda: pytest.fail("schema lookup is replaced below"),
+        plan_connect=plan_connect,
+        cost_estimate_enabled=True,
+    )
+    gateway.schema = lambda: {"sales": ["amount", "region"]}
+
+    estimate = gateway.estimate_cost(
+        GatewayQuery(
+            "SELECT amount FROM sales WHERE region=:region",
+            {"region": "华东"},
+            max_rows=20,
+        )
+    )
+
+    assert gateway.capabilities.cost_estimate is True
+    assert estimate.supported is True
+    assert estimate.estimated_rows == 3
+    assert estimate.estimated_cost == pytest.approx(0.42)
+    assert estimate.full_scan is True
+    assert estimate.index_used is True
+    assert estimate.plan["operations"][0]["table"] == "sales"
+    connection = planner_connections[0]
+    statements = [" ".join(sql.split()).upper() for sql, _ in connection.calls]
+    assert statements[0] == "SET SHOWPLAN_XML ON"
+    assert statements[-1] == "SET SHOWPLAN_XML OFF"
+    assert connection.closed and connection.cursor_closed
+
+
+def test_sqlserver_cost_estimate_hides_planner_errors_and_disables_showplan():
+    class BrokenCursor:
+        def __init__(self, connection):
+            self.connection = connection
+
+        def execute(self, sql, params=None):
+            self.connection.calls.append(sql)
+            if sql.upper().startswith("SELECT"):
+                raise RuntimeError("password=planner-secret host=sql.internal")
+
+        def close(self):
+            pass
+
+    class BrokenConnection:
+        def __init__(self):
+            self.calls = []
+
+        def cursor(self):
+            return BrokenCursor(self)
+
+        def close(self):
+            pass
+
+    connection = BrokenConnection()
+    gateway = SQLServerGateway(
+        gateway_id="sqlserver",
+        name="SQL Server",
+        allowed_tables=["sales"],
+        connect=lambda: pytest.fail("schema lookup is replaced below"),
+        plan_connect=lambda: connection,
+        cost_estimate_enabled=True,
+    )
+    gateway.schema = lambda: {"sales": ["amount"]}
+
+    with pytest.raises(GatewayError) as error:
+        gateway.estimate_cost(GatewayQuery("SELECT amount FROM sales"))
+
+    assert error.value.code == "E_GATEWAY_COST"
+    assert "planner-secret" not in str(error.value)
+    assert "sql.internal" not in str(error.value)
+    assert connection.calls[-1].upper() == "SET SHOWPLAN_XML OFF"
+
+
+def test_clickhouse_cost_estimate_returns_bounded_scan_evidence():
+    class EstimateCursor:
+        description = [("database",), ("table",), ("parts",), ("rows",), ("marks",)]
+
+        def __init__(self, connection):
+            self.connection = connection
+            self.rows = []
+
+        def execute(self, sql, params=None, **_options):
+            self.connection.calls.append((sql, params))
+            if sql.upper().startswith("EXPLAIN ESTIMATE"):
+                self.rows = [("acceptance", "sales", 2, 1200, 15)]
+
+        def fetchall(self):
+            rows, self.rows = self.rows, []
+            return rows
+
+        def close(self):
+            self.connection.cursor_closed = True
+
+    class EstimateConnection:
+        def __init__(self):
+            self.calls = []
+            self.closed = False
+            self.cursor_closed = False
+
+        def cursor(self):
+            return EstimateCursor(self)
+
+        def close(self):
+            self.closed = True
+
+    connections = []
+
+    def connect():
+        connection = EstimateConnection()
+        connections.append(connection)
+        return connection
+
+    gateway = ClickHouseGateway(
+        gateway_id="clickhouse",
+        name="ClickHouse",
+        allowed_tables=["sales"],
+        connect=connect,
+    )
+    gateway.schema = lambda: {"sales": ["amount", "region"]}
+
+    estimate = gateway.estimate_cost(
+        GatewayQuery(
+            "SELECT amount FROM sales WHERE region=:region",
+            {"region": "华东"},
+            max_rows=20,
+        )
+    )
+
+    assert gateway.capabilities.cost_estimate is True
+    assert estimate.supported is True
+    assert estimate.estimated_rows == 1200
+    assert estimate.estimated_cost == 15
+    assert estimate.plan == {
+        "parts": 2,
+        "rows": 1200,
+        "marks": 15,
+        "tables": [{"database": "acceptance", "table": "sales", "parts": 2, "rows": 1200, "marks": 15}],
+    }
+    sql, params = connections[0].calls[0]
+    assert sql.upper().startswith("EXPLAIN ESTIMATE SELECT")
+    assert params == {"region": "华东"}
+    assert connections[0].closed and connections[0].cursor_closed
+
+
 @pytest.mark.parametrize("gateway_type", GATEWAYS)
+def test_remote_query_can_be_cancelled_by_operation_id_and_is_unregistered(gateway_type):
+    started = Event()
+    cancelled = Event()
+    connections = []
+
+    class LowLevelConnection:
+        def cancel(self):
+            cancelled.set()
+
+    class BlockingClient:
+        def cancel(self):
+            cancelled.set()
+            return []
+
+    class BlockingCursor:
+        description = [("amount",)]
+
+        def __init__(self, connection):
+            self.connection = connection
+            self.rows = []
+            self._client = BlockingClient()
+
+        def execute(self, sql, params=None, **_options):
+            if sql == gateway_type.schema_sql:
+                self.rows = [("sales", "amount")]
+                return
+            if sql.upper().startswith(("SET ", "ALTER ")):
+                return
+            started.set()
+            if not cancelled.wait(2):
+                raise RuntimeError("query was not cancelled")
+            raise RuntimeError("cancelled by test")
+
+        def fetchall(self):
+            rows, self.rows = self.rows, []
+            return rows
+
+        def fetchmany(self, size):
+            return []
+
+        def close(self):
+            self.connection.cursor_closed = True
+
+    class BlockingConnection:
+        def __init__(self):
+            self._conn = LowLevelConnection()
+            self.cursor_closed = False
+            self.closed = False
+
+        def cursor(self):
+            return BlockingCursor(self)
+
+        def cancel(self):
+            cancelled.set()
+
+        def close(self):
+            self.closed = True
+
+    def connect():
+        connection = BlockingConnection()
+        connections.append(connection)
+        return connection
+
+    instance = gateway_type(
+        gateway_id="remote",
+        name="Remote",
+        allowed_tables=["sales"],
+        connect=connect,
+    )
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(
+            instance.query,
+            GatewayQuery("SELECT amount FROM sales", operation_id="op-cancel"),
+        )
+        assert started.wait(2)
+        assert instance.capabilities.cancel is True
+        assert instance.cancel("op-cancel") is True
+        with pytest.raises(GatewayError) as error:
+            future.result(timeout=3)
+            assert error.value.code == "E_GATEWAY_CANCELLED"
+
+    assert instance.cancel("op-cancel") is False
+    assert all(connection.closed and connection.cursor_closed for connection in connections)
+
+
+def test_remote_rejects_duplicate_active_operation_id():
+    instance, _, _ = gateway(OracleGateway)
+    instance._active_operations["duplicate"] = (object(), object())
+
+    with pytest.raises(GatewayError) as error:
+        instance.query(GatewayQuery("SELECT amount FROM sales", operation_id="duplicate"))
+
+    assert error.value.code == "E_GATEWAY_CONFLICT"
+
+
+@pytest.mark.parametrize("gateway_type", [OracleGateway, SQLServerGateway])
 def test_remote_cost_contract_is_explicitly_unsupported_until_vendor_explain_is_verified(gateway_type):
     instance, _, _ = gateway(gateway_type)
 

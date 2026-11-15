@@ -59,6 +59,7 @@
 .sortable:hover{color:#27856f}
 .sort-arrow{font-size:10px;margin-left:4px}
 .result-actions{display:flex;align-items:center;gap:12px}
+.usage-summary{display:flex;flex-wrap:wrap;align-items:center;gap:5px 10px;margin-top:9px;color:#6d7b84;font-size:11px;line-height:1.5}.usage-summary span+span:before{content:'·';margin-right:10px;color:#b2bcc2}.usage-cost{font-weight:600;color:#276f60}.usage-source{padding:2px 6px;border:1px solid #dce5e2;border-radius:4px;background:#f7faf9;color:#5d716b}.usage-unavailable{color:#8b979e}
 .export-status{font-size:12px;margin:0 0 14px;color:#53636d}
 .export-status a{color:#27856f}
 .code-head{display:flex;justify-content:space-between;align-items:center}

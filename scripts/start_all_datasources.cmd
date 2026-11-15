@@ -36,6 +36,13 @@ if "%MYSQL_READY%"=="0" (
   exit /b 1
 )
 
+echo Synchronizing the shared SQLite and MySQL analytics dataset...
+.venv\Scripts\python.exe scripts\seed_multimonth_demo_data.py --sqlite-path data/demo.db --mysql --replace-sales
+if errorlevel 1 (
+  echo SQLite or MySQL demo data synchronization failed.
+  exit /b 1
+)
+
 set "POSTGRES_READONLY_DSN="
 set "SQLSERVER_HOST="
 set "SQLSERVER_ADMIN_PASSWORD="
@@ -49,7 +56,7 @@ if not "%POSTGRES_READONLY_DSN%"=="" (
   echo Starting PostgreSQL 16...
   docker compose -p query-pilot-postgres -f docker-compose.postgres.yml up -d
   if errorlevel 1 exit /b 1
-  .venv\Scripts\python.exe scripts\seed_multimonth_demo_data.py --postgres-container query-pilot-postgres-postgres-1 --wait-seconds 30
+  .venv\Scripts\python.exe scripts\seed_multimonth_demo_data.py --postgres-container query-pilot-postgres-postgres-1 --wait-seconds 30 --replace-sales
   if errorlevel 1 (
     echo PostgreSQL did not become ready or demo data seeding failed.
     exit /b 1
@@ -82,6 +89,11 @@ if not "%SQLSERVER_HOST%"=="" (
   )
   .venv\Scripts\python.exe scripts\provision_sqlserver.py
   if errorlevel 1 exit /b 1
+  .venv\Scripts\python.exe scripts\seed_multimonth_demo_data.py --sqlserver --replace-sales
+  if errorlevel 1 (
+    echo SQL Server demo data synchronization failed.
+    exit /b 1
+  )
 )
 
 if not "%CLICKHOUSE_HOST%"=="" (
@@ -109,6 +121,11 @@ if not "%CLICKHOUSE_HOST%"=="" (
   )
   .venv\Scripts\python.exe scripts\provision_clickhouse.py --container qp-clickhouse
   if errorlevel 1 exit /b 1
+  .venv\Scripts\python.exe scripts\seed_multimonth_demo_data.py --clickhouse-container qp-clickhouse --replace-sales
+  if errorlevel 1 (
+    echo ClickHouse demo data synchronization failed.
+    exit /b 1
+  )
 )
 
 echo Verifying every configured datasource with a real read-only query...
