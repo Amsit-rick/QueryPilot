@@ -235,13 +235,13 @@ class OracleGateway(RemoteGateway):
 
     @staticmethod
     def default_connect():
-        import oracledb
         if not settings.oracle_dsn or not settings.oracle_user or not settings.oracle_password:
             raise RuntimeError("Oracle configuration missing")
         if settings.oracle_tls_required and not re.search(
             r"(^tcps://|protocol\s*=\s*tcps)", settings.oracle_dsn, re.IGNORECASE
         ):
             raise RuntimeError("Oracle TLS configuration missing")
+        import oracledb
         connection = oracledb.connect(
             user=settings.oracle_user, password=settings.oracle_password,
             dsn=settings.oracle_dsn, tcp_connect_timeout=settings.gateway_connect_timeout_seconds,
@@ -253,13 +253,13 @@ class OracleGateway(RemoteGateway):
 
     @staticmethod
     def default_plan_connect():
-        import oracledb
         if not settings.oracle_dsn or not settings.oracle_plan_user or not settings.oracle_plan_password:
             raise RuntimeError("Oracle planner configuration missing")
         if settings.oracle_tls_required and not re.search(
             r"(^tcps://|protocol\s*=\s*tcps)", settings.oracle_dsn, re.IGNORECASE
         ):
             raise RuntimeError("Oracle TLS configuration missing")
+        import oracledb
         connection = oracledb.connect(
             user=settings.oracle_plan_user,
             password=settings.oracle_plan_password,

@@ -42,11 +42,11 @@ class ClickHouseGateway(RemoteGateway):
 
     @staticmethod
     def default_connect():
-        from clickhouse_driver import dbapi
         if not settings.clickhouse_host or not settings.clickhouse_user or not settings.clickhouse_password or not settings.clickhouse_database:
             raise RuntimeError("ClickHouse configuration missing")
         if settings.clickhouse_tls_required and not settings.clickhouse_secure:
             raise RuntimeError("ClickHouse TLS configuration missing")
+        from clickhouse_driver import dbapi
         # ClickHouse rejects any session setting change while `readonly=1` is
         # active, including `max_execution_time`, so the two cannot be sent
         # together. Read-only is therefore enforced twice without that flag:
