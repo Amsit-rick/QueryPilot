@@ -1,6 +1,7 @@
-import {computed, ref, watch} from 'vue'
+import {computed, nextTick, ref, watch} from 'vue'
 
 const emptyDraft=()=>({skill_id:'',version:'',description:'',trigger_terms:'',intents:'',workflow_steps:''})
+const emptyImportDraft=()=>({kind:'local',uri:'',revision:'',publisher:'',content:'',digest:''})
 
 export function useSkillReleases(api,authFetch){
   const skillCatalog=ref([]);const skillVersions=ref([]);const skillReleaseDraft=ref(emptyDraft())
@@ -8,8 +9,10 @@ export function useSkillReleases(api,authFetch){
   const skillReleaseError=ref('');const skillReleaseLoading=ref(false);const skillReleaseBusyId=ref('')
   const skillEvaluationResult=ref(null)
   const skillQueryQualityResult=ref(null)
+  const skillImportDraft=ref(emptyImportDraft());const skillImportPreview=ref(null);const skillImportResult=ref(null)
   const selectedDefinition=computed(()=>skillCatalog.value.find(item=>item.id===skillReleaseDraft.value.skill_id)||null)
   watch(skillReleaseDraft,()=>{skillEvaluationResult.value=null;skillQueryQualityResult.value=null},{deep:true})
+  watch(()=>[skillImportDraft.value.kind,skillImportDraft.value.uri,skillImportDraft.value.revision,skillImportDraft.value.publisher,skillImportDraft.value.content],()=>{skillImportPreview.value=null;skillImportResult.value=null;skillImportDraft.value.digest=''})
   async function request(path,options={}){
     const response=await authFetch(`${api}/api/v1/skills${path}`,options);const data=await response.json().catch(()=>({}))
     if(!response.ok)throw new Error(data.detail?.message||data.detail||'Skill 发布请求失败');return data
@@ -71,5 +74,36 @@ export function useSkillReleases(api,authFetch){
     try{skillPreviewResult.value=await request('/admin/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skill_id:skillReleaseDraft.value.skill_id,subject:skillPreviewSubject.value.trim()})})}
     catch(error){skillReleaseError.value=error.message}finally{skillReleaseBusyId.value=''}
   }
-  return{skillCatalog,skillVersions,skillReleaseDraft,skillCanaryPercent,skillPreviewSubject,skillPreviewResult,skillEvaluationResult,skillQueryQualityResult,skillReleaseError,skillReleaseLoading,skillReleaseBusyId,loadSkillReleases,selectSkill,createSkillDraft,evaluateSkillDraft,evaluateSkillQueryQuality,startSkillCanary,publishSkillVersion,rollbackSkillVersion,previewSkillResolution}
+  async function sha256(value){
+    const bytes=new TextEncoder().encode(value);const hash=await crypto.subtle.digest('SHA-256',bytes)
+    return Array.from(new Uint8Array(hash),byte=>byte.toString(16).padStart(2,'0')).join('')
+  }
+  async function selectSkillImportFile(file){
+    if(!file)return
+    if(file.size>65536){skillReleaseError.value='SKILL.md 文件超过 64KB 字节上限';return}
+    const content=await file.text()
+    skillImportDraft.value={...skillImportDraft.value,kind:'local',uri:file.name,revision:'local-upload',content,digest:''}
+    await nextTick()
+    if(skillImportDraft.value.content===content)skillImportDraft.value.digest=await sha256(content)
+  }
+  async function importPayload(){
+    const draft=skillImportDraft.value
+    if(!draft.content.trim()||!draft.uri.trim()||!draft.revision.trim()||!draft.publisher.trim())throw new Error('请补全 SKILL.md、来源、修订版本和发布者')
+    const digest=await sha256(draft.content);skillImportDraft.value.digest=digest
+    return{content:draft.content,source:{kind:draft.kind,uri:draft.uri.trim(),revision:draft.revision.trim(),publisher:draft.publisher.trim()},signature:{algorithm:'sha256',digest,issuer:draft.publisher.trim()}}
+  }
+  async function previewSkillImport(){
+    skillReleaseError.value='';skillReleaseBusyId.value='import-preview'
+    try{skillImportPreview.value=await request('/admin/import/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(await importPayload())})}
+    catch(error){skillReleaseError.value=error.message}finally{skillReleaseBusyId.value=''}
+  }
+  async function confirmSkillImport(){
+    if(!skillImportPreview.value?.confirmation_token){skillReleaseError.value='请先预览并核对导入差异';return}
+    skillReleaseError.value='';skillReleaseBusyId.value='import-confirm'
+    try{
+      const payload=await importPayload();skillImportResult.value=await request('/admin/import/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,confirmation_token:skillImportPreview.value.confirmation_token})})
+      skillImportPreview.value=null;await loadSkillReleases()
+    }catch(error){skillReleaseError.value=error.message}finally{skillReleaseBusyId.value=''}
+  }
+  return{skillCatalog,skillVersions,skillReleaseDraft,skillCanaryPercent,skillPreviewSubject,skillPreviewResult,skillEvaluationResult,skillQueryQualityResult,skillImportDraft,skillImportPreview,skillImportResult,skillReleaseError,skillReleaseLoading,skillReleaseBusyId,loadSkillReleases,selectSkill,createSkillDraft,evaluateSkillDraft,evaluateSkillQueryQuality,startSkillCanary,publishSkillVersion,rollbackSkillVersion,previewSkillResolution,selectSkillImportFile,previewSkillImport,confirmSkillImport}
 }

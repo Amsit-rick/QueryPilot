@@ -1,14 +1,14 @@
 """Administrator API for governed external MCP server registrations."""
 
-import os
 from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
 from app.api.dependencies import require_manage_access
 from app.mcp_registry_runtime import get_mcp_registry_service
+from app.mcp_credentials_runtime import get_mcp_credential_service
 from app.mcp_invocation_runtime import get_mcp_invocation_service
-from app.schemas.mcp_registry import McpServerCreateRequest, McpServerUpdateRequest, McpToolCallRequest
+from app.schemas.mcp_registry import McpCredentialRotateRequest, McpServerCreateRequest, McpServerUpdateRequest, McpToolCallRequest
 from app.services.mcp_invocation_service import McpInvocationError
 
 router = APIRouter(prefix="/api/v1/mcp-servers", tags=["mcp-registry"])
@@ -21,7 +21,9 @@ def _payload(server) -> dict:
     data["created_at"] = server.created_at.isoformat()
     data["updated_at"] = server.updated_at.isoformat()
     data["last_checked_at"] = server.last_checked_at.isoformat() if server.last_checked_at else None
-    data["credential_configured"] = bool(os.getenv(server.auth_env_ref, ""))
+    data["credential_rotated_at"] = server.credential_rotated_at.isoformat() if server.credential_rotated_at else None
+    data["oauth_scopes"] = list(server.oauth_scopes)
+    data["credential_configured"] = get_mcp_credential_service().is_configured(server)
     return data
 
 
@@ -79,6 +81,28 @@ async def check_server_health(server_id: str, identity=Depends(require_manage_ac
         return _payload(server)
     except McpInvocationError as exc:
         raise _invocation_http_error(exc) from exc
+
+
+@router.post("/{server_id}/credentials/rotate")
+def rotate_server_credentials(
+    server_id: str,
+    request: McpCredentialRotateRequest,
+    identity=Depends(require_manage_access),
+):
+    tenant_id = identity.get("tenant_id", "default")
+    try:
+        server = get_mcp_registry_service().rotate_credentials(
+            server_id,
+            tenant_id,
+            request.model_dump(exclude_unset=True),
+            actor_id=str(identity.get("subject", "")),
+        )
+        get_mcp_credential_service().invalidate(tenant_id, server_id)
+        return _payload(server)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/{server_id}/invoke")

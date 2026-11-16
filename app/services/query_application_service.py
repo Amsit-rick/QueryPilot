@@ -28,6 +28,7 @@ from ..agent import (
 from ..agent.contracts import merge_sql_params, parse_sql_plan
 from ..agent.langchain_adapter import generate_sql as generate_sql_langchain
 from ..agent.recovery_runtime import build_checkpoint_writer
+from ..agent.skill_workflow import enforce_skill_model_budget, finalize_skill_workflow
 from ..agent.state import QueryAgentState
 from ..approval_store import create_approval
 from ..audit import write_audit
@@ -116,6 +117,8 @@ class QueryApplicationDependencies:
     describe_result: Callable[..., Any]
     get_skill_service: Callable[..., Any]
     get_user_grants: Callable[..., Any]
+    get_mcp_agent_enrichment_service: Callable[..., Any] | None = None
+    get_executable_skill_workflow_service: Callable[..., Any] | None = None
 
 
 def _gateway_http_exception(exc: GatewayError) -> HTTPException:
@@ -297,6 +300,8 @@ class QueryApplicationService:
         describe_result = self.dependencies.describe_result
         get_skill_service = self.dependencies.get_skill_service
         get_user_grants = self.dependencies.get_user_grants
+        get_mcp_agent_enrichment_service = self.dependencies.get_mcp_agent_enrichment_service
+        get_executable_skill_workflow_service = self.dependencies.get_executable_skill_workflow_service
         replay_policies = get_tool_replay_policy_service()
         enforce_rate_limit(
             identity.get("subject", "anonymous"),
@@ -587,6 +592,8 @@ class QueryApplicationService:
         cost_estimate = None
         dialect = gateway_registry.require(datasource["id"]).descriptor.dialect
         sql = request.sql or ""
+        active_skill_workflow: dict[str, Any] = {}
+        skill_workflow_persisted = False
 
         def finish_failed_turn(error_code: str) -> None:
             if request.follow_up:
@@ -595,6 +602,48 @@ class QueryApplicationService:
             else:
                 task_service.transition(task.id, tenant_id, "failed")
                 task_service.append_event(task_id=task.id, kind="task_failed", payload={"trace_id": trace_id, "error_code": error_code})
+
+        def persist_skill_workflow(
+            final_status: str,
+            *,
+            error_code: str = "",
+            workflow: dict[str, Any] | None = None,
+        ) -> dict[str, Any] | None:
+            nonlocal step_sequence, skill_workflow_persisted, active_skill_workflow
+            if skill_workflow_persisted:
+                return None
+            source = workflow if isinstance(workflow, dict) and workflow else active_skill_workflow
+            if not isinstance(source, dict) or source.get("status") == "not_applicable" or not source:
+                return None
+            finalized = finalize_skill_workflow(
+                source,
+                provided_sql=bool(request.sql),
+                final_status=final_status,
+                error_code=error_code,
+            )
+            task_service.append_step(
+                task_id=task.id,
+                kind="skill_workflow",
+                sequence=step_sequence,
+                status="failed" if final_status == "failed" else "completed",
+                output=finalized,
+                error=finalized.get("message", "") if final_status == "failed" else "",
+            )
+            step_sequence += 1
+            skill_workflow_persisted = True
+            active_skill_workflow = finalized
+            return finalized
+
+        def skill_workflow_summary(workflow: dict[str, Any] | None = None) -> dict[str, str] | None:
+            source = workflow if isinstance(workflow, dict) and workflow else active_skill_workflow
+            contract = source.get("contract") if isinstance(source, dict) else None
+            if not isinstance(contract, dict):
+                return None
+            return {
+                "profile_id": str(contract.get("profile_id") or ""),
+                "profile_version": str(contract.get("profile_version") or ""),
+                "status": str(source.get("status") or ""),
+            }
 
         try:
             trace_service = (
@@ -622,6 +671,25 @@ class QueryApplicationService:
                     tenant_id=tenant_id,
                 )
 
+            skill_route = traced(
+                "skill_resolve",
+                lambda: get_skill_service().route(
+                    request.question,
+                    identity=identity,
+                    datasource_id=datasource["id"],
+                    audit=False,
+                ),
+            )()
+            mcp_enrichment_context: dict[str, Any] = {}
+            mcp_enrichment_evidence: tuple[dict[str, Any], ...] = ()
+            if get_mcp_agent_enrichment_service is not None:
+                enrichment = await traced(
+                    "mcp_enrich",
+                    get_mcp_agent_enrichment_service().enrich,
+                )(request.question, identity, datasource)
+                mcp_enrichment_context = dict(enrichment.context)
+                mcp_enrichment_evidence = tuple(dict(item) for item in enrichment.evidence)
+
             agent_service = AgentQueryService(
                 provider=runtime_model.adapter,
                 direct_generate=generate_sql,
@@ -634,6 +702,31 @@ class QueryApplicationService:
                 system_prompt=runtime_model.system_prompt,
                 prompt_version=runtime_model.prompt_version,
             )
+            skill_workflow_service = (
+                get_executable_skill_workflow_service()
+                if get_executable_skill_workflow_service is not None
+                else None
+            )
+
+            def enforce_next_model_call_budget() -> None:
+                if not active_skill_workflow or active_skill_workflow.get("status") == "not_applicable":
+                    return
+                current_total_tokens = provider_usage.get("input_tokens", 0) + provider_usage.get("output_tokens", 0)
+                if current_total_tokens:
+                    projected_total_tokens = current_total_tokens + estimated_input_tokens + estimated_output_tokens
+                    projected_cost = cost_for_tokens(
+                        provider_usage.get("input_tokens", 0),
+                        provider_usage.get("output_tokens", 0),
+                    ) + estimated_cost
+                else:
+                    projected_total_tokens = (model_invocation_count + 1) * (estimated_input_tokens + estimated_output_tokens)
+                    projected_cost = (model_invocation_count + 1) * estimated_cost
+                enforce_skill_model_budget(
+                    active_skill_workflow,
+                    model_calls=model_invocation_count,
+                    estimated_total_tokens=projected_total_tokens,
+                    estimated_cost_usd=projected_cost,
+                )
 
             async def generate_for_graph(question: str):
                 nonlocal model_invocation_count
@@ -646,6 +739,7 @@ class QueryApplicationService:
                     if "区域" in question:
                         return "SELECT o.region, SUM(p.amount) AS pending_amount FROM payments p JOIN enterprise_orders o ON o.id = p.order_id WHERE p.status = 'pending' GROUP BY o.region ORDER BY pending_amount DESC"
                 ensure_safe_generation_prompt(question)
+                enforce_next_model_call_budget()
                 model_invocation_count += 1
                 generated = await agent_service.generate(
                     question=question,
@@ -667,15 +761,6 @@ class QueryApplicationService:
             def resolve_semantics_for_graph(question: str) -> dict:
                 nonlocal context, generation_schema, schema_retrieval_context
                 context = context_service.retrieve(question)
-                skill_route = traced(
-                    "skill_resolve",
-                    lambda: get_skill_service().route(
-                        question,
-                        identity=identity,
-                        datasource_id=datasource["id"],
-                        audit=False,
-                    ),
-                )()
                 selected_skill = skill_route.get("selected_skill")
                 if selected_skill:
                     deployment = selected_skill.get("deployment", {})
@@ -691,6 +776,10 @@ class QueryApplicationService:
                     }
                 else:
                     context.pop("skill", None)
+                if mcp_enrichment_context:
+                    context["mcp_enrichment"] = mcp_enrichment_context
+                else:
+                    context.pop("mcp_enrichment", None)
                 descriptor_metadata = gateway_descriptor.metadata if isinstance(gateway_descriptor.metadata, dict) else {}
                 context["execution_context"] = {
                     "current_date": datetime.now().astimezone().date().isoformat(),
@@ -718,6 +807,7 @@ class QueryApplicationService:
                 )
                 generation_schema = retrieval.schema
                 schema_retrieval_context = retrieval.context_summary()
+                context["schema_retrieval"] = schema_retrieval_context
                 column_values = ground_column_values(datasource, generation_schema)
                 if column_values:
                     context["column_values"] = column_values
@@ -754,6 +844,22 @@ class QueryApplicationService:
                     context["security_findings"] = context_findings[:20]
                 return context
 
+            def prepare_skill_workflow_for_graph(
+                question: str,
+                semantic_context: dict[str, Any],
+                provided_sql: bool,
+            ) -> dict[str, Any]:
+                nonlocal active_skill_workflow
+                if skill_workflow_service is None:
+                    active_skill_workflow = {}
+                    return {}
+                active_skill_workflow = skill_workflow_service.prepare(
+                    question,
+                    semantic_context,
+                    provided_sql=provided_sql,
+                )
+                return active_skill_workflow
+
             def plan_for_graph(question: str, semantic_context: dict) -> AnalysisPlan:
                 analysis_mode = request.analysis_mode or infer_analysis_mode(question)
                 analysis_requested = analysis_mode != "none"
@@ -784,6 +890,7 @@ class QueryApplicationService:
                 if base_critic_invoke is not None:
                     async def critic_invoke(prompt: str):
                         nonlocal model_invocation_count
+                        enforce_next_model_call_budget()
                         model_invocation_count += 1
                         return await base_critic_invoke(prompt)
             rollout_decision = get_reflection_rollout_service().resolve(
@@ -1033,6 +1140,7 @@ class QueryApplicationService:
                 validate=traced("validate", validate_for_graph),
                 execute=traced("execute", execute_for_graph),
                 resolve_semantics=traced("schema_retrieve", resolve_semantics_for_graph),
+                prepare_skill_workflow=traced("skill_workflow", prepare_skill_workflow_for_graph),
                 plan=traced("plan", plan_for_graph),
                 verify=traced("verify", verify_for_graph),
                 analyze=traced("analyze", describe_result),
@@ -1081,29 +1189,42 @@ class QueryApplicationService:
                     confidence=(history[-1].get("confidence") if history else None),
                 )
             if exc.status == "clarification_required":
+                persisted_workflow = persist_skill_workflow(
+                    "clarification_required",
+                    error_code=exc.code,
+                    workflow=getattr(locals().get("agent_state"), "skill_workflow", None),
+                )
                 if request.follow_up:
                     task_service.restore_completed_after_follow_up(task.id, tenant_id, reason="follow_up_clarification_required")
                 else:
                     task_service.transition(task.id, tenant_id, "clarification_required")
                 task_service.append_event(task_id=task.id, kind="clarification_required", payload={"trace_id": trace_id, "reason_codes": (history[-1].get("reason_codes") if history else [exc.code])})
-                return {"trace_id": trace_id, "task_id": task.id, "status": "clarification_required", "sql": sql, "error": {"code": exc.code, "message": exc.message}}
+                response = {"trace_id": trace_id, "task_id": task.id, "status": "clarification_required", "sql": sql, "error": {"code": exc.code, "message": exc.message}}
+                workflow_summary = skill_workflow_summary(persisted_workflow)
+                if workflow_summary:
+                    response["skill_workflow"] = workflow_summary
+                return response
+            persist_skill_workflow("failed", error_code=exc.code, workflow=getattr(locals().get("agent_state"), "skill_workflow", None))
             task_service.append_step(task_id=task.id, kind="query", sequence=step_sequence, status="failed", output={"sql": sql, "trace_id": trace_id, "tool_replay": replay_policies.require("query.execute").as_dict()}, error=exc.message)
             finish_failed_turn(exc.code)
             usage_input, usage_output, usage_cost, usage_source = current_usage()
             write_audit(settings.audit_log_path, trace_id=trace_id, task_id=task.id, tenant_id=tenant_id, sql=sql, duration_ms=int((perf_counter() - started) * 1000), error_code=exc.code, model=runtime_model.model, prompt_version=runtime_model.prompt_version, dataset_version=context.get("catalog_version", "unknown"), input_tokens=usage_input, output_tokens=usage_output, cost_usd=usage_cost, usage_source=usage_source, actor_id=str(identity.get("subject")))
             return {"trace_id": trace_id, "task_id": task.id, "error": {"code": exc.code, "message": exc.message}, "sql": sql}
         except ModelConfigurationError as exc:
+            persist_skill_workflow("failed", error_code=exc.code, workflow=getattr(locals().get("agent_state"), "skill_workflow", None))
             task_service.append_step(task_id=task.id, kind="generate_sql", sequence=step_sequence, status="failed", output={"trace_id": trace_id}, error=str(exc))
             finish_failed_turn(exc.code)
             usage_input, usage_output, usage_cost, usage_source = current_usage()
             write_audit(settings.audit_log_path, trace_id=trace_id, task_id=task.id, tenant_id=tenant_id, sql="", duration_ms=int((perf_counter() - started) * 1000), error_code=exc.code, model=runtime_model.model, prompt_version=runtime_model.prompt_version, dataset_version=context["catalog_version"], input_tokens=usage_input, output_tokens=usage_output, cost_usd=usage_cost, usage_source=usage_source, actor_id=str(identity.get("subject")))
             return {"trace_id": trace_id, "task_id": task.id, "error": {"code": exc.code, "message": str(exc)}, "sql": ""}
         except PromptInjectionError as exc:
+            persist_skill_workflow("failed", error_code=exc.code, workflow=getattr(locals().get("agent_state"), "skill_workflow", None))
             task_service.append_step(task_id=task.id, kind="generate_sql", sequence=step_sequence, status="failed", output={"trace_id": trace_id, "prompt_fingerprint": exc.decision.fingerprint, "reason_codes": list(exc.decision.reasons)}, error=str(exc))
             finish_failed_turn(exc.code)
             write_audit(settings.audit_log_path, trace_id=trace_id, task_id=task.id, tenant_id=tenant_id, sql="", duration_ms=int((perf_counter() - started) * 1000), error_code=exc.code, model=runtime_model.model, prompt_version=runtime_model.prompt_version, dataset_version=context["catalog_version"], event="prompt_injection_blocked", actor_id=str(identity.get("subject")))
             return {"trace_id": trace_id, "task_id": task.id, "error": {"code": exc.code, "message": str(exc)}, "sql": ""}
         except QueryError as exc:
+            persist_skill_workflow("failed", error_code=exc.code, workflow=getattr(locals().get("agent_state"), "skill_workflow", None))
             task_service.append_step(task_id=task.id, kind="query", sequence=step_sequence, status="failed", output={"sql": sql, "trace_id": trace_id, "tool_replay": replay_policies.require("query.execute").as_dict()}, error=str(exc))
             finish_failed_turn(exc.code)
             usage_input, usage_output, usage_cost, usage_source = current_usage()
@@ -1111,12 +1232,14 @@ class QueryApplicationService:
             return {"trace_id": trace_id, "task_id": task.id, "error": {"code": exc.code, "message": str(exc)}, "sql": sql}
         except ValueError as exc:
             code, _, message = str(exc).partition(":")
+            persist_skill_workflow("failed", error_code=code or "E_QUERY_ERROR", workflow=getattr(locals().get("agent_state"), "skill_workflow", None))
             task_service.append_step(task_id=task.id, kind="query", sequence=step_sequence, status="failed", output={"sql": sql, "trace_id": trace_id, "tool_replay": replay_policies.require("query.execute").as_dict()}, error=message or str(exc))
             finish_failed_turn(code or "E_QUERY_ERROR")
             usage_input, usage_output, usage_cost, usage_source = current_usage()
             write_audit(settings.audit_log_path, trace_id=trace_id, task_id=task.id, tenant_id=tenant_id, sql=sql, duration_ms=int((perf_counter() - started) * 1000), error_code=code or "E_QUERY_ERROR", model=runtime_model.model, prompt_version=runtime_model.prompt_version, dataset_version=context["catalog_version"], input_tokens=usage_input, output_tokens=usage_output, cost_usd=usage_cost, usage_source=usage_source, actor_id=str(identity.get("subject")))
             return {"trace_id": trace_id, "task_id": task.id, "error": {"code": code or "E_QUERY_ERROR", "message": message or "查询执行失败"}, "sql": sql}
         except Exception:
+            persist_skill_workflow("failed", error_code="E_AGENT_POSTPROCESS", workflow=getattr(locals().get("agent_state"), "skill_workflow", None))
             task_service.append_step(task_id=task.id, kind="postprocess", sequence=step_sequence, status="failed", output={"sql": sql, "trace_id": trace_id}, error="Unexpected postprocessing failure")
             finish_failed_turn("E_AGENT_POSTPROCESS")
             usage_input, usage_output, usage_cost, usage_source = current_usage()
@@ -1127,8 +1250,15 @@ class QueryApplicationService:
         field_value_refs = [{key: item.get(key) for key in ("id", "logical_id", "version", "name", "table", "column", "score")} for item in resolved_context.get("field_values", [])]
         expansion = resolved_context.get("query_expansion", {})
         expansion_summary = {"mode": expansion.get("mode", "none"), "evidence_count": expansion.get("evidence_count", 0), "term_count": len(expansion.get("terms", []))}
-        task_service.append_step(task_id=task.id, kind="resolve_semantics", sequence=step_sequence, status="completed", output={"catalog_version": resolved_context.get("catalog_version", "unknown"), "examples": len(resolved_context.get("examples", [])), "metrics": len(resolved_context.get("metrics", [])), "semantic_entries": len(semantic_refs), "semantic_versions": {item["logical_id"]: item["version"] for item in semantic_refs}, "semantic_refs": semantic_refs, "field_value_matches": len(field_value_refs), "field_value_refs": field_value_refs, "query_expansion": expansion_summary, "skill": resolved_context.get("skill"), "execution_context": resolved_context.get("execution_context", {}), "schema_retrieval": schema_retrieval_context})
+        mcp_status = "not_used"
+        if mcp_enrichment_evidence:
+            mcp_status = "degraded" if any(item.get("status") == "degraded" for item in mcp_enrichment_evidence) else "completed"
+        task_service.append_step(task_id=task.id, kind="resolve_semantics", sequence=step_sequence, status="completed", output={"catalog_version": resolved_context.get("catalog_version", "unknown"), "examples": len(resolved_context.get("examples", [])), "metrics": len(resolved_context.get("metrics", [])), "semantic_entries": len(semantic_refs), "semantic_versions": {item["logical_id"]: item["version"] for item in semantic_refs}, "semantic_refs": semantic_refs, "field_value_matches": len(field_value_refs), "field_value_refs": field_value_refs, "query_expansion": expansion_summary, "skill": resolved_context.get("skill"), "execution_context": resolved_context.get("execution_context", {}), "schema_retrieval": schema_retrieval_context, "mcp": {"status": mcp_status, "calls": list(mcp_enrichment_evidence)}})
         step_sequence += 1
+        completed_workflow = persist_skill_workflow(
+            "completed",
+            workflow=graph_result["state"].skill_workflow,
+        )
         task_service.append_step(task_id=task.id, kind="plan_analysis", sequence=step_sequence, status="completed", output=graph_result["state"].analysis_plan)
         step_sequence += 1
         persist_reflection_records(
@@ -1184,6 +1314,9 @@ class QueryApplicationService:
         actual_input_tokens, actual_output_tokens, actual_cost, usage_source = current_usage()
         write_audit(settings.audit_log_path, trace_id=trace_id, task_id=task.id, tenant_id=tenant_id, sql=sql, duration_ms=int((perf_counter() - started) * 1000), row_count=len(rows), truncated=truncated, large_result=len(rows) >= settings.large_result_row_threshold, model=runtime_model.model, prompt_version=runtime_model.prompt_version, dataset_version=context["catalog_version"], input_tokens=actual_input_tokens, output_tokens=actual_output_tokens, cost_usd=actual_cost, usage_source=usage_source, actor_id=str(identity.get("subject")), cost_backend=getattr(cost_estimate, "backend", None), cost_supported=getattr(cost_estimate, "supported", None), estimated_rows=getattr(cost_estimate, "estimated_rows", None), estimated_cost=getattr(cost_estimate, "estimated_cost", None), full_scan=getattr(cost_estimate, "full_scan", None), index_used=getattr(cost_estimate, "index_used", None))
         response = {"trace_id": trace_id, "task_id": task.id, "question": request.question, "follow_up": request.follow_up, "sql": sql, "columns": columns, "rows": rows, "row_count": len(rows), "truncated": truncated, "answer": graph_result["state"].explanation["summary"], "analysis": graph_result["state"].derived_analysis or None, "skill": resolved_context.get("skill"), "usage": usage}
+        workflow_summary = skill_workflow_summary(completed_workflow)
+        if workflow_summary:
+            response["skill_workflow"] = workflow_summary
         if branch_origin:
             response["branch_origin"] = branch_origin
         if str(identity.get("subject", "")).isdigit() and request.question.strip() not in {"查询", "查询数据", "测试查询"}:

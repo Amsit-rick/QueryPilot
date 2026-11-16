@@ -1,4 +1,6 @@
 from fastapi.testclient import TestClient
+import hashlib
+import json
 
 from app.api.dependencies import require_manage_access, require_query_access
 from app.main import app
@@ -261,3 +263,116 @@ def test_non_manager_cannot_run_skill_sql_quality_evaluation():
         json={"definition": {"id": "sales-analysis"}},
     )
     assert response.status_code in {401, 403}
+
+
+def _skill_import_payload(content: str, *, token: str = "") -> dict:
+    payload = {
+        "content": content,
+        "source": {
+            "kind": "local",
+            "uri": "sales-analysis.SKILL.md",
+            "revision": "local-20261116",
+            "publisher": "query-pilot-admin",
+        },
+        "signature": {
+            "algorithm": "sha256",
+            "digest": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+            "issuer": "query-pilot-admin",
+        },
+    }
+    if token:
+        payload["confirmation_token"] = token
+    return payload
+
+
+def _skill_import_content(extra: str = "") -> str:
+    return f"""---
+schema_version: query-pilot-skill-import/v1
+id: sales-analysis
+version: 1.1.0
+name: 销售分析
+description: 受控导入的销售分析版本
+intents: [sales_query, gross_margin_query]
+trigger_terms: [销售, 营收, 毛利]
+allowed_tools: [schema.list, query.plan, result.get]
+workflow_steps: [确认销售口径, 生成受控只读查询计划]
+allowed_roles: [viewer, analyst, admin]
+read_only: true
+priority: 70
+{extra}---
+# Notes
+正文不会执行。
+"""
+
+
+def test_admin_previews_and_confirms_skill_md_as_draft_without_publishing(monkeypatch, tmp_path):
+    reset_memory_skill_repository()
+    app.dependency_overrides[require_manage_access] = lambda: {
+        "subject": "admin-import",
+        "tenant_id": "tenant-import",
+        "roles": ["admin"],
+    }
+    monkeypatch.setattr("app.main.settings.audit_log_path", str(tmp_path / "audit.jsonl"))
+    monkeypatch.setattr("app.api.skill_routes.settings.audit_log_path", str(tmp_path / "audit.jsonl"))
+    content = _skill_import_content()
+    try:
+        preview = client.post(
+            "/api/v1/skills/admin/import/preview",
+            json=_skill_import_payload(content),
+        )
+        confirmed = client.post(
+            "/api/v1/skills/admin/import/confirm",
+            json=_skill_import_payload(content, token=preview.json()["confirmation_token"]),
+        )
+        catalog = client.get("/api/v1/skills/admin/catalog")
+        versions = client.get("/api/v1/skills/admin/versions?skill_id=sales-analysis")
+    finally:
+        app.dependency_overrides.clear()
+        reset_memory_skill_repository()
+
+    assert preview.status_code == 200
+    assert preview.json()["diff"]["status"] == "update"
+    assert confirmed.status_code == 200
+    assert confirmed.json()["version"]["state"] == "draft"
+    assert confirmed.json()["import_receipt"]["integrity"]["verified"] is True
+    active = next(item for item in catalog.json() if item["id"] == "sales-analysis")
+    assert active["version"] == "1.0.0"
+    assert len(versions.json()) == 1
+    audit_text = (tmp_path / "audit.jsonl").read_text(encoding="utf-8")
+    assert "skill_import_previewed" in audit_text
+    assert "skill_import_confirmed" in audit_text
+    assert "正文不会执行" not in audit_text
+
+
+def test_skill_md_import_rejects_unsupported_fields_with_stable_error(tmp_path):
+    app.dependency_overrides[require_manage_access] = lambda: {
+        "subject": "admin-import",
+        "tenant_id": "tenant-import",
+        "roles": ["admin"],
+    }
+    content = _skill_import_content("scripts: [powershell.exe]\n")
+    try:
+        response = client.post(
+            "/api/v1/skills/admin/import/preview",
+            json=_skill_import_payload(content),
+        )
+    finally:
+        app.dependency_overrides.pop(require_manage_access, None)
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "E_SKILL_IMPORT_UNSUPPORTED_FIELD"
+
+
+def test_non_manager_cannot_preview_or_confirm_skill_md_import():
+    content = _skill_import_content()
+    preview = client.post(
+        "/api/v1/skills/admin/import/preview",
+        json=_skill_import_payload(content),
+    )
+    confirm = client.post(
+        "/api/v1/skills/admin/import/confirm",
+        json=_skill_import_payload(content, token="invalid"),
+    )
+
+    assert preview.status_code in {401, 403}
+    assert confirm.status_code in {401, 403}

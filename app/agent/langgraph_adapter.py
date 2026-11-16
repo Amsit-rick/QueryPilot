@@ -41,6 +41,7 @@ class AgentGraphState(TypedDict, total=False):
     confidence: float
     needs_approval: bool
     semantic_context: dict[str, Any]
+    skill_workflow: dict[str, Any]
     analysis_plan: dict[str, Any]
     verification: dict[str, Any]
     verification_retryable: bool
@@ -85,6 +86,7 @@ class LangGraphQueryAgent:
         state.confidence = result.get("confidence", state.confidence)
         state.needs_approval = result.get("needs_approval", state.needs_approval)
         state.semantic_context = result.get("semantic_context", {})
+        state.skill_workflow = result.get("skill_workflow", {})
         state.analysis_plan = result.get("analysis_plan", {})
         state.verification = result.get("verification", {})
         state.reflection = result.get("reflection", {})
@@ -107,7 +109,7 @@ class LangGraphQueryAgent:
         return {"state": state, "result": result["result"]}
 
 
-def build_langgraph(*, generate: Callable, validate: Callable, execute: Callable, resolve_semantics: Callable | None = None, plan: Callable | None = None, verify: Callable | None = None, analyze: Callable | None = None, explain: Callable | None = None, materialize: Callable | None = None, pre_execute: Callable | None = None, max_repairs: int = 2, checkpoint: Callable[[dict[str, Any]], None] | None = None, reflection_policy: ReflectionPolicy | None = None, max_schema_expansions: int = 1, max_execution_retries: int = 1, max_reflection_steps: int = 12):
+def build_langgraph(*, generate: Callable, validate: Callable, execute: Callable, resolve_semantics: Callable | None = None, prepare_skill_workflow: Callable | None = None, plan: Callable | None = None, verify: Callable | None = None, analyze: Callable | None = None, explain: Callable | None = None, materialize: Callable | None = None, pre_execute: Callable | None = None, max_repairs: int = 2, checkpoint: Callable[[dict[str, Any]], None] | None = None, reflection_policy: ReflectionPolicy | None = None, max_schema_expansions: int = 1, max_execution_retries: int = 1, max_reflection_steps: int = 12):
     try:
         from langgraph.graph import END, START, StateGraph
     except ImportError:
@@ -156,6 +158,27 @@ def build_langgraph(*, generate: Callable, validate: Callable, execute: Callable
     def resolve_semantics_node(state: AgentGraphState) -> dict[str, Any]:
         context = resolve_semantics(state["question"]) if resolve_semantics else {}
         return {"semantic_context": context, "status": "semantics_resolved"}
+
+    async def prepare_skill_workflow_node(state: AgentGraphState) -> dict[str, Any]:
+        if not prepare_skill_workflow:
+            return {"skill_workflow": {}, "status": "skill_workflow_ready"}
+        value = prepare_skill_workflow(
+            state["question"],
+            state.get("semantic_context", {}),
+            bool(state.get("provided_sql")),
+        )
+        if inspect.isawaitable(value):
+            value = await value
+        workflow = dict(value or {})
+        workflow_status = workflow.get("status")
+        if workflow_status in {"clarification_required", "failed"}:
+            return {
+                "skill_workflow": workflow,
+                "status": workflow_status,
+                "error": str(workflow.get("message") or "Skill 工作流预检失败"),
+                "error_code": str(workflow.get("error_code") or "E_SKILL_WORKFLOW"),
+            }
+        return {"skill_workflow": workflow, "status": "skill_workflow_ready"}
 
     def plan_node(state: AgentGraphState) -> dict[str, Any]:
         value = plan(state["question"], state.get("semantic_context", {})) if plan else AnalysisPlan(objective=state["question"])
@@ -304,6 +327,9 @@ def build_langgraph(*, generate: Callable, validate: Callable, execute: Callable
     def route_generation(state: AgentGraphState) -> str:
         return "validate" if state.get("status") == "generated" else "reflect"
 
+    def route_skill_workflow(state: AgentGraphState) -> str:
+        return "plan" if state.get("status") == "skill_workflow_ready" else END
+
     def route_execution(state: AgentGraphState) -> str:
         return "verify" if state.get("status") == "executed" else "reflect"
 
@@ -347,6 +373,7 @@ def build_langgraph(*, generate: Callable, validate: Callable, execute: Callable
 
     builder = StateGraph(AgentGraphState)
     builder.add_node("resolve_semantics", node("resolve_semantics", resolve_semantics_node))
+    builder.add_node("skill_workflow", async_node("skill_workflow", prepare_skill_workflow_node))
     builder.add_node("plan", node("plan", plan_node))
     builder.add_node("generate", async_node("generate", generate_node))
     builder.add_node("validate", node("validate", validate_node))
@@ -358,7 +385,8 @@ def build_langgraph(*, generate: Callable, validate: Callable, execute: Callable
     builder.add_node("explain", node("explain", explain_node))
     builder.add_node("materialize", node("materialize", materialize_node))
     builder.add_edge(START, "resolve_semantics")
-    builder.add_edge("resolve_semantics", "plan")
+    builder.add_edge("resolve_semantics", "skill_workflow")
+    builder.add_conditional_edges("skill_workflow", route_skill_workflow, {"plan": "plan", END: END})
     builder.add_edge("plan", "generate")
     builder.add_conditional_edges("generate", route_generation, {"reflect": "reflect", "validate": "validate"})
     builder.add_conditional_edges("validate", route_validation, {"reflect": "reflect", "execute": "execute"})
@@ -376,7 +404,7 @@ def _apply_snapshot(state: QueryAgentState, snapshot: dict[str, Any]) -> None:
     """Copy persisted progress back to the caller without restoring raw results."""
     for name in (
         "sql", "error", "error_code", "repair_attempts", "max_repair_attempts", "status", "intent",
-        "confidence", "needs_approval", "semantic_context", "analysis_plan",
+        "confidence", "needs_approval", "semantic_context", "skill_workflow", "analysis_plan",
         "verification", "reflection", "reflection_history", "reflection_budget",
         "derived_analysis", "explanation", "artifacts", "thread_id",
     ):

@@ -56,6 +56,54 @@ def test_mcp_server_exposes_readonly_tools_and_skill_catalog():
     anyio.run(exercise)
 
 
+def test_mcp_tool_returns_stable_application_error_code():
+    from mcp import ClientSession
+    from mcp.client._memory import InMemoryTransport
+
+    server = create_mcp_server(
+        identity_provider=lambda _context: {
+            "subject": "mcp-test",
+            "tenant_id": "default",
+            "roles": ["analyst"],
+        }
+    )
+
+    async def exercise():
+        async with InMemoryTransport(server) as streams:
+            async with ClientSession(*streams) as session:
+                await session.initialize()
+                result = await session.call_tool("query.plan", {"question": " "})
+
+                assert result.is_error is True
+                assert "E_INTEGRATION_QUESTION" in result.content[0].text
+
+    anyio.run(exercise)
+
+
+def test_mcp_tool_returns_stable_authentication_error_code():
+    from mcp import ClientSession
+    from mcp.client._memory import InMemoryTransport
+
+    def reject_identity(_context):
+        raise PermissionError("missing credential")
+
+    server = create_mcp_server(identity_provider=reject_identity)
+
+    async def exercise():
+        async with InMemoryTransport(server) as streams:
+            async with ClientSession(*streams) as session:
+                await session.initialize()
+                result = await session.call_tool(
+                    "skill.route",
+                    {"question": "统计待回款金额"},
+                )
+
+                assert result.is_error is True
+                assert "E_MCP_AUTH" in result.content[0].text
+
+    anyio.run(exercise)
+
+
 def test_mcp_skill_catalog_uses_same_tenant_canary_resolution(monkeypatch):
     from app.config import settings
     from app.domain.skill import SkillDefinition

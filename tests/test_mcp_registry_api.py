@@ -156,3 +156,53 @@ def test_mcp_health_and_invoke_api_are_admin_tenant_scoped(monkeypatch):
         json=payload(name="Wildcard", allowed_tools=["*"]),
     ).status_code == 422
 
+
+def test_oauth_registration_and_credential_rotation_never_return_secrets(monkeypatch):
+    monkeypatch.setenv("FINANCE_MCP_CLIENT_SECRET", "oauth-secret-value")
+    monkeypatch.setenv("FINANCE_MCP_CLIENT_SECRET_V2", "oauth-secret-v2")
+    identity({"subject": "1", "tenant_id": "tenant-a", "roles": ["admin"]})
+    created = client.post(
+        "/api/v1/mcp-servers",
+        json=payload(
+            auth_type="oauth_client_credentials",
+            auth_env_ref="env://FINANCE_MCP_CLIENT_SECRET",
+            oauth_token_url="https://identity.example.com/oauth/token",
+            oauth_client_id="query-pilot",
+            oauth_scopes=["mcp.read"],
+        ),
+    )
+
+    assert created.status_code == 200
+    assert created.json()["auth_type"] == "oauth_client_credentials"
+    assert created.json()["credential_version"] == 1
+    assert created.json()["credential_configured"] is True
+    assert "oauth-secret-value" not in created.text
+
+    rotated = client.post(
+        f"/api/v1/mcp-servers/{created.json()['id']}/credentials/rotate",
+        json={"auth_env_ref": "env://FINANCE_MCP_CLIENT_SECRET_V2"},
+    )
+    assert rotated.status_code == 200
+    assert rotated.json()["credential_version"] == 2
+    assert rotated.json()["health_status"] == "unchecked"
+    assert "oauth-secret-v2" not in rotated.text
+
+    identity({"subject": "2", "tenant_id": "tenant-b", "roles": ["admin"]})
+    assert client.post(
+        f"/api/v1/mcp-servers/{created.json()['id']}/credentials/rotate",
+        json={"auth_env_ref": "env://FINANCE_MCP_CLIENT_SECRET_V2"},
+    ).status_code == 404
+
+
+def test_registry_api_rejects_inline_oauth_token_and_client_secret():
+    identity({"subject": "1", "tenant_id": "tenant-a", "roles": ["admin"]})
+    base = payload(
+        auth_type="oauth_client_credentials",
+        auth_env_ref="env://FINANCE_MCP_CLIENT_SECRET",
+        oauth_token_url="https://identity.example.com/oauth/token",
+        oauth_client_id="query-pilot",
+    )
+
+    assert client.post("/api/v1/mcp-servers", json={**base, "access_token": "inline"}).status_code == 422
+    assert client.post("/api/v1/mcp-servers", json={**base, "client_secret": "inline"}).status_code == 422
+

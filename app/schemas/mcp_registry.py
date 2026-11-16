@@ -1,5 +1,7 @@
 """Strict HTTP request contracts for the external MCP registry."""
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -9,7 +11,11 @@ class McpServerCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     transport: str = "streamable-http"
     endpoint: str = Field(min_length=1, max_length=500)
-    auth_env_ref: str = Field(min_length=2, max_length=128)
+    auth_type: Literal["bearer", "oauth_client_credentials"] = "bearer"
+    auth_env_ref: str = Field(min_length=2, max_length=134)
+    oauth_token_url: str = Field(default="", max_length=500)
+    oauth_client_id: str = Field(default="", max_length=200)
+    oauth_scopes: list[str] = Field(default_factory=list, max_length=20)
     allowed_tools: list[str] = Field(min_length=1, max_length=100)
     enabled: bool = True
     read_only_only: bool = True
@@ -27,7 +33,11 @@ class McpServerUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     transport: str | None = None
     endpoint: str | None = Field(default=None, min_length=1, max_length=500)
-    auth_env_ref: str | None = Field(default=None, min_length=2, max_length=128)
+    auth_type: Literal["bearer", "oauth_client_credentials"] | None = None
+    auth_env_ref: str | None = Field(default=None, min_length=2, max_length=134)
+    oauth_token_url: str | None = Field(default=None, max_length=500)
+    oauth_client_id: str | None = Field(default=None, max_length=200)
+    oauth_scopes: list[str] | None = Field(default=None, max_length=20)
     allowed_tools: list[str] | None = Field(default=None, min_length=1, max_length=100)
     enabled: bool | None = None
     read_only_only: bool | None = None
@@ -44,4 +54,14 @@ class McpToolCallRequest(BaseModel):
 
     tool_name: str = Field(min_length=1, max_length=128)
     arguments: dict = Field(default_factory=dict)
+
+
+class McpCredentialRotateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    auth_type: Literal["bearer", "oauth_client_credentials"] | None = None
+    auth_env_ref: str = Field(min_length=2, max_length=134)
+    oauth_token_url: str | None = Field(default=None, max_length=500)
+    oauth_client_id: str | None = Field(default=None, max_length=200)
+    oauth_scopes: list[str] | None = Field(default=None, max_length=20)
 

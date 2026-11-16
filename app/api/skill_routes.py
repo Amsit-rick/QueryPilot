@@ -15,6 +15,8 @@ from app.llm import generate_sql
 from app.schemas.skills import (
     SkillCanaryRequest,
     SkillEvaluationRequest,
+    SkillImportConfirmRequest,
+    SkillImportPreviewRequest,
     SkillPreviewRequest,
     SkillRouteRequest,
     SkillVersionCreateRequest,
@@ -25,6 +27,8 @@ from app.skill_evaluation import compare_skill_catalogs, overlay_candidate_catal
 from app.skill_query_evaluation import compare_skill_query_quality, load_skill_query_cases
 from app.model_operations_runtime import get_model_operations_service
 from app.services.agent_query_service import AgentQueryService
+from app.services.skill_import_service import SkillImportError
+from app.skill_import_runtime import get_skill_import_service
 
 
 router = APIRouter(prefix="/api/v1/skills", tags=["skills"])
@@ -56,6 +60,24 @@ def _validate_datasource(identity: dict, datasource_id: str | None) -> None:
         raise HTTPException(status_code=404, detail="数据源不存在")
     if not role_can_use(identity, datasource):
         raise HTTPException(status_code=403, detail="无权访问该数据源")
+
+
+def _import_payload(request) -> dict:
+    return {
+        "content": request.content,
+        "source": request.source.model_dump(mode="json"),
+        "signature": request.signature.model_dump(mode="json"),
+    }
+
+
+def _import_error(exc: SkillImportError, *, identity: dict, content: str = "") -> HTTPException:
+    get_skill_import_service().record_rejection(
+        tenant_id=identity.get("tenant_id", "default"),
+        actor_id=str(identity.get("subject", "")),
+        error_code=exc.code,
+        content=content,
+    )
+    return HTTPException(status_code=422, detail={"code": exc.code, "message": exc.message})
 
 
 @router.get("")
@@ -96,6 +118,73 @@ def create_skill_version(
             definition=request.definition,
         )
     )
+
+
+@router.post("/admin/import/preview")
+def preview_skill_import(
+    request: SkillImportPreviewRequest,
+    identity: dict = Depends(require_manage_access),
+):
+    service = get_skill_service()
+    importer = get_skill_import_service()
+    try:
+        return importer.preview(
+            **_import_payload(request),
+            current_catalog=service.list_admin_catalog(identity),
+            tenant_id=identity.get("tenant_id", "default"),
+            actor_id=str(identity.get("subject", "")),
+        )
+    except SkillImportError as exc:
+        raise _import_error(exc, identity=identity, content=request.content) from exc
+
+
+@router.post("/admin/import/confirm")
+def confirm_skill_import(
+    request: SkillImportConfirmRequest,
+    identity: dict = Depends(require_manage_access),
+):
+    service = get_skill_service()
+    importer = get_skill_import_service()
+    tenant_id = identity.get("tenant_id", "default")
+    actor_id = str(identity.get("subject", ""))
+    try:
+        receipt = importer.confirm(
+            **_import_payload(request),
+            confirmation_token=request.confirmation_token,
+            current_catalog=service.list_admin_catalog(identity),
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+        )
+        record = service.create_version(
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            definition=SkillDefinition.model_validate(receipt["definition"]),
+        )
+        importer.record_confirmed(
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            receipt=receipt,
+            version_id=record.id,
+        )
+        return {
+            "version": _version_payload(record),
+            "import_receipt": {
+                key: value
+                for key, value in receipt.items()
+                if key not in {"definition", "diff", "warnings"}
+            },
+        }
+    except SkillImportError as exc:
+        raise _import_error(exc, identity=identity, content=request.content) from exc
+    except ValueError as exc:
+        importer.record_rejection(
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            error_code="E_SKILL_IMPORT_CREATE",
+            content=request.content,
+        )
+        status = 409 if "DUPLICATE" in str(exc) or "RESERVED" in str(exc) else 422
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
 
 
 @router.post("/admin/versions/{version_id}/canary")

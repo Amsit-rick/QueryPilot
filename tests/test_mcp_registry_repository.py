@@ -76,7 +76,8 @@ def test_mysql_repository_serializes_allowlist_without_secret_value(monkeypatch)
     assert "INSERT INTO mcp_server_registry" in sql
     assert params[1] == "tenant-a"
     assert params[5] == "FINANCE_MCP_TOKEN"
-    assert params[6] == '["schema.list", "report.read"]'
+    assert params[6] == "bearer"
+    assert params[12] == '["schema.list", "report.read"]'
     assert "secret-value" not in str(params)
     assert connection.committed is True
 
@@ -90,6 +91,12 @@ def test_mysql_repository_reads_and_deletes_with_tenant_scope(monkeypatch):
         server.transport,
         server.endpoint,
         server.auth_env_ref,
+        "bearer",
+        None,
+        None,
+        "[]",
+        1,
+        None,
         '["schema.list", "report.read"]',
         1,
         1,
@@ -119,4 +126,33 @@ def test_mysql_repository_reads_and_deletes_with_tenant_scope(monkeypatch):
     assert MySQLMcpRegistryRepository().delete("server-1", "tenant-a") is True
     assert delete_cursor.calls[0][1] == ("server-1", "tenant-a")
     assert delete_connection.committed is True
+
+
+def test_mysql_repository_persists_oauth_references_and_metadata_without_tokens(monkeypatch):
+    cursor = FakeCursor()
+    connection = FakeConnection(cursor)
+    monkeypatch.setattr(repository_module, "connect", fake_connect(connection))
+    server = McpServerRegistration(
+        **{
+            **registration().__dict__,
+            "auth_type": "oauth_client_credentials",
+            "auth_env_ref": "env://FINANCE_MCP_CLIENT_SECRET",
+            "oauth_token_url": "https://identity.example.com/oauth/token",
+            "oauth_client_id": "query-pilot",
+            "oauth_scopes": ("mcp.read",),
+            "credential_version": 2,
+        }
+    )
+
+    MySQLMcpRegistryRepository().create(server)
+    sql, params = cursor.calls[0]
+
+    assert "oauth_token_url" in sql
+    assert params[6] == "oauth_client_credentials"
+    assert params[7] == "https://identity.example.com/oauth/token"
+    assert params[8] == "query-pilot"
+    assert params[9] == '["mcp.read"]'
+    assert params[10] == 2
+    assert "access-token" not in str(params)
+    assert "client-secret-value" not in str(params)
 

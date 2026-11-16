@@ -1,6 +1,6 @@
 # Query Pilot MCP 与 Skill 改造
 
-更新时间：2026-11-03
+更新时间：2026-11-16
 
 ## 1. 目标与边界
 
@@ -14,6 +14,8 @@ Query Pilot 将 MCP 用作跨客户端的结构化工具协议，将 Skill 用�
 MCP Client / Query Pilot HTTP Client
   -> Bearer JWT / API Key / 本地开发身份
   -> Skill Router（确定性关键词与优先级）
+  -> 可选 Agent MCP Enrichment（固定只读语义工具）
+  -> Schema 召回 / SQL 生成 / SQL 安全门禁
   -> MCP Tool / Skill API
   -> ReadOnlyIntegrationService
   -> RBAC / Tenant / Datasource / Schema Policy / Audit
@@ -72,12 +74,15 @@ querypilot://skills/catalog/{tenant_id}
 GET    /api/v1/mcp-servers
 POST   /api/v1/mcp-servers
 PATCH  /api/v1/mcp-servers/{server_id}
+POST   /api/v1/mcp-servers/{server_id}/credentials/rotate
 POST   /api/v1/mcp-servers/{server_id}/health
 POST   /api/v1/mcp-servers/{server_id}/invoke
 DELETE /api/v1/mcp-servers/{server_id}
 ```
 
-注册表保存 `streamable-http` Endpoint、环境变量凭据引用、精确 Tool allowlist 和运行时治理参数。不接受 stdio 命令、内联 Token、任意 Header 或 `*` 通配符。远程 Endpoint 必须使用 HTTPS；HTTP 只允许 `localhost` 或字面量回环 IP。注册、健康检查和调用均要求 `manage` 权限、按租户过滤并写入脱敏审计事件。
+注册表保存 `streamable-http` Endpoint、Secret 引用、认证方式、OAuth 非秘密元数据、精确 Tool allowlist 和运行时治理参数。
+不接受 stdio 命令、内联 Token/Client Secret、任意 Header 或 `*` 通配符。远程 Endpoint 与 OAuth Token URL 必须使用 HTTPS；
+HTTP 只允许 `localhost` 或字面量回环 IP。注册、健康检查、轮换和调用均要求 `manage` 权限、按租户过滤并写入脱敏审计事件。
 
 示例请求只引用部署环境中的密钥，不包含密钥值：
 
@@ -86,22 +91,45 @@ DELETE /api/v1/mcp-servers/{server_id}
   "name": "Finance MCP",
   "transport": "streamable-http",
   "endpoint": "https://mcp.example.com/mcp",
-  "auth_env_ref": "FINANCE_MCP_TOKEN",
+  "auth_type": "bearer",
+  "auth_env_ref": "env://FINANCE_MCP_TOKEN",
   "allowed_tools": ["schema.list", "report.read"],
   "enabled": true,
   "read_only_only": true
 }
 ```
 
-响应中的 `credential_configured` 只说明当前进程能否解析该环境变量，不返回环境变量的值。每次健康检查或调用都会重新解析 DNS、发现远端工具并核验精确 allowlist。调用只放行明确声明 `readOnlyHint=true` 且未声明 `destructiveHint=true` 的工具；重复工具名、缺少只读声明和交互式 `input_required` 均失败关闭。
+OAuth Client Credentials 示例：
+
+```json
+{
+  "name": "Finance OAuth MCP",
+  "transport": "streamable-http",
+  "endpoint": "https://mcp.example.com/mcp",
+  "auth_type": "oauth_client_credentials",
+  "auth_env_ref": "env://FINANCE_MCP_CLIENT_SECRET",
+  "oauth_token_url": "https://identity.example.com/oauth/token",
+  "oauth_client_id": "query-pilot",
+  "oauth_scopes": ["mcp.read"],
+  "allowed_tools": ["report.read"],
+  "enabled": true,
+  "read_only_only": true
+}
+```
+
+响应中的 `credential_configured` 只说明当前进程能否解析 Secret 引用，不返回 Secret。每次健康检查或调用都会重新解析目标 DNS、
+发现远端工具并核验精确 allowlist。调用只放行明确声明 `readOnlyHint=true` 且未声明 `destructiveHint=true` 的工具；重复工具名、
+缺少只读声明和交互式 `input_required` 均失败关闭。
 
 ### 外部调用治理
 
 外部调用使用官方 Python `mcp==2.3.0` Streamable HTTP 客户端，并执行以下限制：
 
-- Bearer Token 只从 `auth_env_ref` 指向的进程环境变量读取，不写入数据库、响应或审计。
+- Bearer Token 或 OAuth Client Secret 只从 `auth_env_ref` 指向的 Secret Provider 读取；当前 Provider 支持环境变量引用。
+- OAuth Access Token 按租户、Server ID 和凭据版本缓存于进程内存，过期前刷新；不写入数据库、Redis、响应或审计。
+- 凭据配置只能通过专用轮换接口修改；轮换增加版本、清除旧缓存并把健康状态重置为未检查。
 - 禁用环境代理、禁止重定向，并限制参数、结果、SSE 单事件、工具数量和分页数量。
-- 每个租户和 Server 独立执行并发、每日调用次数和熔断治理；单机默认使用内存，多实例部署应使用 Redis。
+- 每个租户和 Server 独立执行并发、每日调用次数和熔断治理；健康检查使用独立单飞键；单机默认使用内存，多实例部署应使用 Redis。
 - 默认禁止私网目标；管理员可显式设置 `allow_private_network=true`。即使允许私网，也始终拒绝 link-local、metadata、multicast、unspecified 和 reserved 地址。
 - 普通工具调用不自动重试，避免对远端产生重复副作用。健康检查不消耗每日调用次数。
 - 审计只记录 Server ID、工具名、耗时和错误码，不记录参数、结果、Token 或完整 Endpoint。
@@ -116,6 +144,13 @@ MCP_MAX_RESULT_BYTES=1048576
 MCP_MAX_SSE_EVENT_BYTES=1048576
 MCP_MAX_DISCOVERED_TOOLS=200
 MCP_MAX_TOOL_PAGES=10
+MCP_AGENT_ENRICHMENT_ENABLED=false
+MCP_AGENT_ENRICHMENT_MAX_TOOLS=2
+MCP_AGENT_ENRICHMENT_MAX_RESULT_BYTES=32768
+MCP_AGENT_ENRICHMENT_MAX_DEPTH=8
+MCP_AGENT_ENRICHMENT_MAX_FIELDS=256
+MCP_AGENT_ENRICHMENT_MAX_TEXT_CHARS=2000
+MCP_AGENT_ENRICHMENT_MAX_QUESTION_CHARS=512
 ```
 
 `MCP_RUNTIME_BACKEND=redis` 时必须同时配置 `REDIS_URL`。这里的“每日预算”按调用次数计，不是货币成本。
@@ -236,7 +271,7 @@ Streamable HTTP 不会回退使用 `QUERY_PILOT_MCP_TOKEN`；该变量只用于�
 - 对比报告分别统计生成成功率、SQL 合法率、护栏通过率、执行成功率和精确结果匹配率，并按用例显示基线/候选状态。报告不保存生成 SQL 或完整结果行。
 - 修改草稿会清除旧评测结果，避免把旧版本分数误认作当前候选版本；模型未配置和 API 错误会显示为页面错误状态。
 
-本数据集是合成 SQLite 的小型回归样本，精确匹配只对当前固定用例成立，不能证明真实业务口径正确、不能替代企业 gold 集，也不能直接推导生产准确率。Skill 工作步骤仍是模型上下文声明，不是确定性可执行工作流。
+本数据集是合成 SQLite 的小型回归样本，精确匹配只对当前固定用例成立，不能证明真实业务口径正确、不能替代企业 gold 集，也不能直接推导生产准确率。除 `sales-analysis` 和 `trend-analysis` 已映射到平台固定执行模板外，其余 Skill 工作步骤仍只是模型上下文声明，不是可执行代码。
 
 合成案例现已覆盖两个独立事实侧同时 JOIN 前的预聚合，并允许受限的非递归 CTE 通过共享 SQL 护栏；递归 CTE、超过 8 个 CTE、重复/覆盖业务表名称和不明确输出列仍会被拒绝。该案例只证明固定数据下能够识别并回归一种扇出模式，不能据此宣称复杂企业多侧 JOIN、业务粒度或真实指标口径均已验证。
 
@@ -262,4 +297,113 @@ Streamable HTTP 不会回退使用 `QUERY_PILOT_MCP_TOKEN`；该变量只用于�
 - [x] `SKILL-08` 扩充 10 条分层合成评测，并修复布尔条件被误判为函数的问题
 - [x] `SKILL-09` 非递归 CTE 安全边界与双事实表预聚合评测
 
-当前整体 MCP/Skill 专项进度：`14/14（100% 本地实现）`。这表示本专项本地开发与回归清单完成，不表示企业生产验收或 SQL/业务准确率达标。企业生产仍需独立验证多实例并发发布、身份审批、集中审计、灾备、出口网络、证书、Redis 高可用、容量阈值和第三方 Server 的实际行为。
+截至 2026-11-04 的 MCP Server、管理面与声明式 Skill 阶段进度为 `14/14（100% 本地实现）`。这只表示该历史阶段完成，不表示后续 Agent 主链路深化、企业生产验收或 SQL/业务准确率达标。企业生产仍需独立验证多实例并发发布、身份审批、集中审计、灾备、出口网络、证书、Redis 高可用、容量阈值和第三方 Server 的实际行为。
+
+## 9. Agent MCP Enrichment、可执行 Skill 与企业治理（MS-00～MS-10）
+
+旧 `14/14` 表示 2026-11-03 至 2026-11-04 的 MCP Server、管理面和声明式 Skill 阶段已经完成，
+不表示外部 MCP 已经进入用户查询主链路。2026-11-16 新增深化专项后，当前专项进度为 `10/11（90.9%）`；
+MS-10 已完成官方 SDK 协议基线，但产品客户端验收仍未完成。
+
+查询链路现在支持在 Skill 路由后、Schema 召回前执行可选的外部 MCP 语义补充：
+
+```text
+用户问题
+  -> 身份 / 租户 / 数据源权限
+  -> Skill 路由
+  -> 确定性 MCP 工具选择
+  -> 外部结果大小 / 深度 / 字段 / 文本上限
+  -> Prompt 注入清洗与不可信数据包装
+  -> Schema 召回
+  -> 平台固定 Skill 工作流预检
+  -> SQL 生成
+  -> 原有 AST / 权限 / 成本 / 审批 / 执行门禁
+```
+
+只允许四类工具进入该链路：`catalog.search`、`metric.lookup`、`lineage.get`、`policy.explain`。
+普通数据查询不会调用 MCP；模型不能指定 Server、Endpoint 或任意工具。每类工具从当前租户已启用且显式允许该工具的
+Server 中按稳定顺序选择一个。功能默认关闭，只有设置 `MCP_AGENT_ENRICHMENT_ENABLED=true` 才会启用。
+
+发送给外部 MCP 的参数仅包含经过邮箱、手机号、长数字和常见 Secret 模式脱敏的问题摘要，以及数据源 ID 和数据库类型；
+不发送 SQL、参数、Token、连接串或完整 Schema。返回结果必须是有界 JSON 对象，并以
+`untrusted_external_data` 包装。检测到类似覆盖系统指令、索取 Secret 或绕过安全边界的文本时，用占位符替换并记录指纹数量。
+
+MCP 超时、不可用、结果非法或超限时，查询链路记录 `degraded` 和稳定错误码后继续使用本地 Schema/语义能力；
+不会把原始异常或结果注入模型，也不会跳过后续 SQL 安全链路。DataTask 的 `resolve_semantics` 步骤只保存 Server ID、
+工具名、状态、耗时、错误码、结果 SHA-256 和安全发现数量，不保存完整请求或结果。
+
+固定联合评测集 `data/mcp_skill_joint_eval.json` 当前 12 条，覆盖普通查询、指标、血缘、策略、目录、注入、非法结果和
+上游超时。运行方式（Windows CMD）：
+
+```cmd
+.venv\Scripts\python.exe scripts\evaluate_mcp_skill_joint.py --output artifacts\mcp-skill-joint-eval.json
+```
+
+该联合集只验证 Skill/MCP 路由、安全清洗和降级契约，不连接真实远程 Server，不衡量 SQL 结果或业务口径准确率。
+
+### Executable Skill Graph
+
+首批仅将 `sales-analysis` 和 `trend-analysis` 映射为平台拥有的固定模板：
+
+```text
+clarify
+  -> retrieve_metric
+  -> retrieve_schema
+  -> validate_grain
+  -> generate_sql
+  -> validate_sql
+  -> execute
+  -> verify_result
+  -> explain
+```
+
+模板固定声明步骤、允许工具、单步超时、最大调用次数，以及外部工具、模型调用、Token 和费用预算。
+模糊的“销售分析”等问题会在模型调用前进入 `clarification_required`；显式 SQL 会跳过 SQL 生成步骤；
+模型调用前实际执行预算门禁，超限返回稳定、不可重试的错误码。执行证据以独立 `skill_workflow` DataTask 步骤持久化，
+只包含合同版本、步骤状态、原因码和有界统计，不包含问题原文、Prompt、SQL、参数、MCP 原始结果、Endpoint 或凭据。
+
+租户在发布页填写的 `workflow_steps` 仍是声明元数据，不能覆盖平台模板，也不会被当作 Python、Shell、网络安装或任意工具调用执行。
+`schema-exploration`、`receivables-analysis`、`sql-diagnostics` 当前仍为声明式 Skill。SQLGlot AST、RBAC、行级策略、
+成本、审批和 Data Gateway 仍是唯一执行边界；可执行 Skill 不获得直接数据库权限。
+
+### Controlled SKILL.md Import
+
+管理员发布页支持选择或粘贴 `SKILL.md`，先调用预览 API，再显式确认创建草稿。只解析严格 YAML Front Matter，
+大小上限为 64KB；未知/重复字段、YAML Anchor/Alias/Tag/Merge Key、Prompt 注入语义和现有 Skill 策略字段变更均失败关闭。
+Markdown 正文只供人工阅读，不进入 Skill 定义、审计或运行时，也不会执行。
+
+来源字段记录 `local / github / registry`、URI、修订版本和发布者。远程 URI 只作为元数据，后端不会联网下载。
+SHA-256 只验证收到的内容与管理员声明一致，不构成发布者身份认证。预览令牌使用 HMAC 绑定内容、来源、定义、租户、
+管理员和当前 Skill 基线，10 分钟后过期；基线并发变化必须重新预览。
+
+导入确认只调用现有 `create_version` 创建 `draft`，不会自动灰度或发布。后续评测、灰度、发布和回滚仍走原治理链。
+示例格式见 `data/skill-import.example.md`，TDD 证据见 `docs/testing/controlled-skill-md-import.tdd.md`。
+
+### OAuth and Secret Governance
+
+外部 MCP 支持 `bearer` 与 `oauth_client_credentials` 两种认证方式。数据库只保存 Secret 引用、OAuth Token URL、Client ID、
+scope、凭据版本和轮换时间；不保存 Token 或 Client Secret。OAuth Token 请求禁用环境代理与重定向，响应限制 64KB，
+只接受字符串 Bearer Token 和正数有效期。
+
+普通 Server PATCH 不能修改认证配置，必须调用专用轮换端点。轮换会增加 `credential_version`、清除当前进程旧 Token 缓存、
+重置健康状态并写入不含引用值的审计事件。缓存键包含租户、Server 和凭据版本，防止跨租户或轮换后复用。
+
+现有 `MCP_RUNTIME_BACKEND=redis` 继续共享并发、每日调用预算和熔断状态；健康探针使用独立、最大并发为 1 的治理键。
+Access Token 不写入 Redis，多实例分别向 OAuth Provider 获取 Token。证据见 `docs/testing/mcp-oauth-secret-governance.tdd.md`。
+
+### Client Compatibility Matrix
+
+官方 Python MCP SDK `2.3.0` 已在本机实际验证 stdio 与回环 Streamable HTTP。两种传输均覆盖初始化、五个只读 Tool、
+Resource Template 列表与读取、`skill.route` 调用、稳定错误码 `E_INTEGRATION_QUESTION`、认证错误码 `E_MCP_AUTH`，
+以及客户端取消后的传输清理。复现命令：
+
+```cmd
+.venv\Scripts\python.exe scripts\verify_mcp_client_compatibility.py --transport all --output data\mcp-client-compatibility.json
+```
+
+机器可读矩阵为 `data/mcp-client-compatibility.json`，详细说明见 `docs/mcp-client-compatibility.md`。
+Claude Code/Desktop、Cursor、Codex 未在固定版本下完成全链路能力检查，矩阵中保持 `not_tested`；不能把官方 SDK 协议通过写成这些产品客户端已经兼容。
+
+专项当前为 `10/11（90.9%）`。官方 SDK 双传输验证属于 MS-10 的协议基线，不等于主流产品客户端验收完成。
+该进度仍不代表完整 MCP/Agent Skills 生态、任意 Skill 代码执行、企业 OAuth/Vault/KMS、多机网络、
+真实长任务服务端取消或企业生产验收。

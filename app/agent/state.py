@@ -17,6 +17,7 @@ class QueryAgentState:
     confidence: float = 0.0
     needs_approval: bool = False
     semantic_context: dict[str, Any] = field(default_factory=dict)
+    skill_workflow: dict[str, Any] = field(default_factory=dict)
     analysis_plan: dict[str, Any] = field(default_factory=dict)
     verification: dict[str, Any] = field(default_factory=dict)
     reflection: dict[str, Any] = field(default_factory=dict)
@@ -47,6 +48,7 @@ class QueryAgentState:
             "confidence": self.confidence,
             "needs_approval": self.needs_approval,
             "semantic_context": self.semantic_context,
+            "skill_workflow": self.skill_workflow,
             "analysis_plan": self.analysis_plan,
             "verification": self.verification,
             "reflection": self.reflection,

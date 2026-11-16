@@ -9,6 +9,7 @@ from typing import Any
 
 from fastapi import HTTPException
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver.exceptions import ResourceError, ToolError
 from mcp_types import ToolAnnotations
 
 from app.auth import require_identity
@@ -51,7 +52,21 @@ def _invoke_tool(identity: dict[str, Any], name: str, arguments: dict[str, Any])
     try:
         return get_read_only_integration_service().invoke(identity, name, arguments)
     except ReadOnlyIntegrationError as exc:
-        raise ValueError(f"{exc.code}:{exc}") from exc
+        raise ToolError(f"{exc.code}:{exc}") from exc
+
+
+def _tool_identity(identity_provider: IdentityProvider, context: Context | None) -> dict[str, Any]:
+    try:
+        return identity_provider(context)
+    except PermissionError as exc:
+        raise ToolError("E_MCP_AUTH:缺少或无效的 MCP 身份凭证") from exc
+
+
+def _resource_identity(identity_provider: IdentityProvider, context: Context | None) -> dict[str, Any]:
+    try:
+        return identity_provider(context)
+    except PermissionError as exc:
+        raise ResourceError("E_MCP_AUTH:缺少或无效的 MCP 身份凭证") from exc
 
 
 def create_mcp_server(identity_provider: IdentityProvider = resolve_mcp_identity) -> MCPServer:
@@ -72,7 +87,7 @@ def create_mcp_server(identity_provider: IdentityProvider = resolve_mcp_identity
         annotations=READ_ONLY_ANNOTATIONS,
     )
     def schema_list(datasource_id: str | None = None, ctx: Context = None) -> dict[str, Any]:  # type: ignore[assignment]
-        return _invoke_tool(identity_provider(ctx), "schema.list", {"datasource_id": datasource_id})
+        return _invoke_tool(_tool_identity(identity_provider, ctx), "schema.list", {"datasource_id": datasource_id})
 
     @server.tool(
         name="query.plan",
@@ -87,7 +102,7 @@ def create_mcp_server(identity_provider: IdentityProvider = resolve_mcp_identity
         ctx: Context = None,  # type: ignore[assignment]
     ) -> dict[str, Any]:
         return _invoke_tool(
-            identity_provider(ctx),
+            _tool_identity(identity_provider, ctx),
             "query.plan",
             {
                 "question": question,
@@ -103,7 +118,7 @@ def create_mcp_server(identity_provider: IdentityProvider = resolve_mcp_identity
         annotations=READ_ONLY_ANNOTATIONS,
     )
     def task_status(task_id: str, ctx: Context = None) -> dict[str, Any]:  # type: ignore[assignment]
-        return _invoke_tool(identity_provider(ctx), "task.status", {"task_id": task_id})
+        return _invoke_tool(_tool_identity(identity_provider, ctx), "task.status", {"task_id": task_id})
 
     @server.tool(
         name="result.get",
@@ -111,7 +126,7 @@ def create_mcp_server(identity_provider: IdentityProvider = resolve_mcp_identity
         annotations=READ_ONLY_ANNOTATIONS,
     )
     def result_get(task_id: str, ctx: Context = None) -> dict[str, Any]:  # type: ignore[assignment]
-        return _invoke_tool(identity_provider(ctx), "result.get", {"task_id": task_id})
+        return _invoke_tool(_tool_identity(identity_provider, ctx), "result.get", {"task_id": task_id})
 
     @server.tool(
         name="skill.route",
@@ -123,7 +138,7 @@ def create_mcp_server(identity_provider: IdentityProvider = resolve_mcp_identity
         datasource_id: str | None = None,
         ctx: Context = None,  # type: ignore[assignment]
     ) -> dict[str, Any]:
-        identity = identity_provider(ctx)
+        identity = _tool_identity(identity_provider, ctx)
         if datasource_id:
             _invoke_tool(identity, "schema.list", {"datasource_id": datasource_id})
         return get_skill_service().route(
@@ -139,9 +154,9 @@ def create_mcp_server(identity_provider: IdentityProvider = resolve_mcp_identity
         mime_type="application/json",
     )
     def skill_catalog(tenant_id: str, ctx: Context) -> str:
-        identity = identity_provider(ctx)
+        identity = _resource_identity(identity_provider, ctx)
         if tenant_id != str(identity.get("tenant_id", "")):
-            raise PermissionError("无权读取其他租户的 Skill 目录")
+            raise ResourceError("E_MCP_TENANT:无权读取其他租户的 Skill 目录")
         payload = {
             "version": 1,
             "read_only": True,

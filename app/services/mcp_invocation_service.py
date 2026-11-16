@@ -15,6 +15,7 @@ from uuid import uuid4
 from app.audit import write_audit
 from app.config import settings
 from app.domain.mcp_invocation import McpToolDescriptor
+from app.services.mcp_credentials import EnvironmentSecretProvider, McpCredentialError, McpCredentialService
 from app.services.mcp_runtime_guard import McpGuardError
 from app.tool_replay_runtime import get_tool_replay_policy_service
 
@@ -45,12 +46,15 @@ class McpInvocationError(RuntimeError):
 
 
 class McpInvocationService:
-    def __init__(self, registry, *, transport, guard, resolver=None, environ=None, replay_policies=None):
+    def __init__(self, registry, *, transport, guard, resolver=None, environ=None, credentials=None, replay_policies=None):
         self.registry = registry
         self.transport = transport
         self.guard = guard
         self._resolver = resolver or self._resolve_hostname
         self._environ = environ if environ is not None else os.environ
+        self.credentials = credentials or McpCredentialService(
+            secret_provider=EnvironmentSecretProvider(self._environ),
+        )
         self.replay_policies = replay_policies or get_tool_replay_policy_service()
 
     @staticmethod
@@ -85,8 +89,8 @@ class McpInvocationService:
             )
         return addresses
 
-    async def _validate_target(self, server) -> None:
-        hostname = urlsplit(server.endpoint).hostname
+    async def _validate_target_url(self, url: str, *, allow_private_network: bool) -> None:
+        hostname = urlsplit(url).hostname
         if not hostname:
             raise McpInvocationError("E_MCP_TARGET_FORBIDDEN", "外部 MCP 目标地址无效", status_code=422)
         addresses = await self._resolved_addresses(hostname)
@@ -109,7 +113,7 @@ class McpInvocationService:
                 )
             if address.is_loopback:
                 continue
-            if address.is_private and not server.allow_private_network:
+            if address.is_private and not allow_private_network:
                 raise McpInvocationError(
                     "E_MCP_TARGET_PRIVATE",
                     "外部 MCP 目标解析到私有网络，需管理员显式允许",
@@ -122,6 +126,14 @@ class McpInvocationService:
                     status_code=422,
                 )
 
+    async def _validate_target(self, server) -> None:
+        await self._validate_target_url(server.endpoint, allow_private_network=server.allow_private_network)
+        if server.auth_type == "oauth_client_credentials":
+            await self._validate_target_url(
+                server.oauth_token_url,
+                allow_private_network=server.allow_private_network,
+            )
+
     def _server(self, server_id: str, tenant_id: str):
         server = self.registry.get_server(server_id, tenant_id)
         if not server:
@@ -132,11 +144,17 @@ class McpInvocationService:
     def _guard_key(server) -> str:
         return f"{server.tenant_id}:{server.id}"
 
-    def _credential(self, server) -> str:
-        token = str(self._environ.get(server.auth_env_ref, "")).strip()
-        if not token:
-            raise McpInvocationError("E_MCP_SECRET_MISSING", "MCP Server 凭据未配置", status_code=409)
-        return token
+    async def _credential(self, server) -> str:
+        try:
+            return await self.credentials.bearer_token(server)
+        except McpCredentialError as exc:
+            status_code = 409 if exc.code in {"E_MCP_SECRET_MISSING", "E_MCP_SECRET_REF", "E_MCP_OAUTH_CONFIG"} else 502
+            raise McpInvocationError(
+                exc.code,
+                exc.message,
+                status_code=status_code,
+                retryable=exc.retryable,
+            ) from exc
 
     @staticmethod
     def _tool_map(tools: list[McpToolDescriptor]) -> dict[str, McpToolDescriptor]:
@@ -222,22 +240,23 @@ class McpInvocationService:
             self._audit("mcp_health_checked", server=server, actor_id=actor_id, duration_ms=0, error_code="E_MCP_DISABLED")
             return updated
         try:
-            token = self._credential(server)
-        except McpInvocationError as exc:
-            updated = self.registry.record_runtime_status(server.id, tenant_id, status="unconfigured", error_code=exc.code)
-            self._audit("mcp_health_checked", server=server, actor_id=actor_id, duration_ms=0, error_code=exc.code)
-            return updated
-        try:
             await self._validate_target(server)
         except McpInvocationError as exc:
             self.registry.record_runtime_status(server.id, tenant_id, status="policy_blocked", error_code=exc.code)
             self._audit("mcp_policy_blocked", server=server, actor_id=actor_id, duration_ms=0, error_code=exc.code)
             raise
+        try:
+            token = await self._credential(server)
+        except McpInvocationError as exc:
+            status = "unconfigured" if exc.code in {"E_MCP_SECRET_MISSING", "E_MCP_SECRET_REF", "E_MCP_OAUTH_CONFIG"} else "unhealthy"
+            updated = self.registry.record_runtime_status(server.id, tenant_id, status=status, error_code=exc.code)
+            self._audit("mcp_health_checked", server=server, actor_id=actor_id, duration_ms=0, error_code=exc.code)
+            return updated
         started = perf_counter()
         try:
             async with self.guard.reserve(
-                key=self._guard_key(server),
-                max_concurrency=server.max_concurrency,
+                key=f"{self._guard_key(server)}:health",
+                max_concurrency=1,
                 daily_call_limit=server.daily_call_limit,
                 consume_budget=False,
                 failure_threshold=server.circuit_failure_threshold,
@@ -302,8 +321,8 @@ class McpInvocationService:
             self._audit("mcp_call_blocked", server=server, actor_id=actor_id, duration_ms=0, error_code="E_MCP_ARGUMENTS_TOO_LARGE", tool_name=tool_name)
             raise McpInvocationError("E_MCP_ARGUMENTS_TOO_LARGE", "工具参数超过大小限制", status_code=413)
         try:
-            token = self._credential(server)
             await self._validate_target(server)
+            token = await self._credential(server)
         except McpInvocationError as exc:
             self._audit("mcp_call_blocked", server=server, actor_id=actor_id, duration_ms=0, error_code=exc.code, tool_name=tool_name)
             raise

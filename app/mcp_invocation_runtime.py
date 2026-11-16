@@ -2,6 +2,7 @@
 
 from app.config import settings
 from app.mcp_registry_runtime import get_mcp_registry_service
+from app.mcp_credentials_runtime import get_mcp_credential_service
 from app.services.mcp_invocation_service import McpInvocationService
 from app.services.mcp_runtime_guard import McpRuntimeGuard
 from app.services.mcp_transport import OfficialMcpTransport
@@ -33,6 +34,7 @@ def get_mcp_invocation_service() -> McpInvocationService:
         get_mcp_registry_service(),
         transport=_transport,
         guard=_runtime_guard(),
+        credentials=get_mcp_credential_service(),
     )
 
 

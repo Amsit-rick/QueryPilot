@@ -17,6 +17,8 @@ ALLOWED_TRACE_STAGES = frozenset(
         "request",
         "schema_retrieve",
         "skill_resolve",
+        "mcp_enrich",
+        "skill_workflow",
         "plan",
         "sql_generate",
         "validate",

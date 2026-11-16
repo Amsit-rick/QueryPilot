@@ -14,8 +14,9 @@ from app.audit import write_audit
 from app.config import settings
 from app.domain.mcp_registry import McpServerRegistration
 
-_ENV_REFERENCE = re.compile(r"^[A-Z][A-Z0-9_]{1,127}$")
+_ENV_REFERENCE = re.compile(r"^(?:env://)?[A-Z][A-Z0-9_]{1,127}$")
 _TOOL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}$")
+_OAUTH_SCOPE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 
 
 class McpRegistryService:
@@ -68,6 +69,23 @@ class McpRegistryService:
                 result.append(tool)
         return tuple(result)
 
+    @staticmethod
+    def _normalize_oauth_scopes(value: object) -> tuple[str, ...]:
+        if value in (None, ""):
+            return ()
+        if not isinstance(value, (list, tuple)) or len(value) > 20:
+            raise ValueError("E_MCP_OAUTH_SCOPE:OAuth scope 必须是最多 20 项的列表")
+        result = []
+        seen = set()
+        for item in value:
+            scope = str(item).strip()
+            if not _OAUTH_SCOPE.fullmatch(scope):
+                raise ValueError("E_MCP_OAUTH_SCOPE:OAuth scope 格式无效")
+            if scope not in seen:
+                seen.add(scope)
+                result.append(scope)
+        return tuple(result)
+
     @classmethod
     def _normalize(cls, data: dict) -> dict:
         name = str(data.get("name", "")).strip()
@@ -77,7 +95,22 @@ class McpRegistryService:
             raise ValueError("E_MCP_TRANSPORT:当前只允许 streamable-http")
         auth_env_ref = str(data.get("auth_env_ref", "")).strip()
         if not _ENV_REFERENCE.fullmatch(auth_env_ref):
-            raise ValueError("E_MCP_SECRET_REF:凭据引用必须是大写环境变量名")
+            raise ValueError("E_MCP_SECRET_REF:凭据引用必须是 env://大写变量名或兼容的大写变量名")
+        auth_type = str(data.get("auth_type") or "bearer").strip()
+        if auth_type not in {"bearer", "oauth_client_credentials"}:
+            raise ValueError("E_MCP_AUTH_TYPE:认证类型不受支持")
+        oauth_token_url = str(data.get("oauth_token_url") or "").strip()
+        oauth_client_id = str(data.get("oauth_client_id") or "").strip()
+        oauth_scopes = cls._normalize_oauth_scopes(data.get("oauth_scopes"))
+        if auth_type == "oauth_client_credentials":
+            if not oauth_token_url or not oauth_client_id or len(oauth_client_id) > 200 or any(character.isspace() for character in oauth_client_id):
+                raise ValueError("E_MCP_OAUTH_CONFIG:OAuth Token URL 和 Client ID 不能为空")
+            try:
+                oauth_token_url = cls._normalize_endpoint(oauth_token_url)
+            except ValueError as exc:
+                raise ValueError("E_MCP_OAUTH_ENDPOINT:OAuth Token URL 必须是安全 HTTP(S) 地址") from exc
+        elif oauth_token_url or oauth_client_id or oauth_scopes:
+            raise ValueError("E_MCP_OAUTH_CONFIG:Bearer 模式不能携带 OAuth 配置")
         if data.get("read_only_only") is not True:
             raise ValueError("E_MCP_READ_ONLY:当前阶段只允许只读 MCP Server")
         try:
@@ -103,7 +136,11 @@ class McpRegistryService:
             "name": name,
             "transport": "streamable-http",
             "endpoint": cls._normalize_endpoint(data.get("endpoint", "")),
+            "auth_type": auth_type,
             "auth_env_ref": auth_env_ref,
+            "oauth_token_url": oauth_token_url,
+            "oauth_client_id": oauth_client_id,
+            "oauth_scopes": oauth_scopes,
             "allowed_tools": cls._normalize_tools(data.get("allowed_tools")),
             "enabled": bool(data.get("enabled", True)),
             "read_only_only": True,
@@ -162,6 +199,10 @@ class McpRegistryService:
             "transport": current.transport,
             "endpoint": current.endpoint,
             "auth_env_ref": current.auth_env_ref,
+            "auth_type": current.auth_type,
+            "oauth_token_url": current.oauth_token_url,
+            "oauth_client_id": current.oauth_client_id,
+            "oauth_scopes": current.oauth_scopes,
             "allowed_tools": current.allowed_tools,
             "enabled": current.enabled,
             "read_only_only": current.read_only_only,
@@ -180,11 +221,16 @@ class McpRegistryService:
             for server in self.repository.list(tenant_id)
         ):
             raise ValueError("E_MCP_DUPLICATE:当前租户已存在同名 MCP Server")
+        credential_changed = any(
+            normalized[field] != getattr(current, field)
+            for field in ("auth_type", "auth_env_ref", "oauth_token_url", "oauth_client_id", "oauth_scopes")
+        )
+        if credential_changed:
+            raise ValueError("E_MCP_CREDENTIAL_ROTATION_REQUIRED:认证配置必须通过凭据轮换接口修改")
         governance_changed = any(
             normalized[field] != getattr(current, field)
             for field in (
                 "endpoint",
-                "auth_env_ref",
                 "allowed_tools",
                 "enabled",
                 "read_only_only",
@@ -204,6 +250,58 @@ class McpRegistryService:
         )
         saved = self.repository.update(updated)
         self._audit("mcp_server_updated", server_id=saved.id, tenant_id=tenant_id, actor_id=actor_id)
+        return saved
+
+    def rotate_credentials(
+        self,
+        server_id: str,
+        tenant_id: str,
+        changes: dict,
+        *,
+        actor_id: str,
+    ) -> McpServerRegistration:
+        current = self.repository.get(server_id, tenant_id)
+        if not current:
+            raise LookupError("MCP Server 不存在")
+        allowed = {"auth_type", "auth_env_ref", "oauth_token_url", "oauth_client_id", "oauth_scopes"}
+        if not changes or set(changes) - allowed:
+            raise ValueError("E_MCP_CREDENTIAL_ROTATION:凭据轮换字段无效")
+        data = {
+            "name": current.name,
+            "transport": current.transport,
+            "endpoint": current.endpoint,
+            "auth_type": current.auth_type,
+            "auth_env_ref": current.auth_env_ref,
+            "oauth_token_url": current.oauth_token_url,
+            "oauth_client_id": current.oauth_client_id,
+            "oauth_scopes": current.oauth_scopes,
+            "allowed_tools": current.allowed_tools,
+            "enabled": current.enabled,
+            "read_only_only": current.read_only_only,
+            "allow_private_network": current.allow_private_network,
+            "request_timeout_seconds": current.request_timeout_seconds,
+            "max_concurrency": current.max_concurrency,
+            "daily_call_limit": current.daily_call_limit,
+            "circuit_failure_threshold": current.circuit_failure_threshold,
+            "circuit_reset_seconds": current.circuit_reset_seconds,
+            **changes,
+        }
+        normalized = self._normalize(data)
+        timestamp = datetime.now(timezone.utc)
+        rotated = replace(
+            current,
+            **normalized,
+            credential_version=current.credential_version + 1,
+            credential_rotated_at=timestamp,
+            health_status="unchecked",
+            last_latency_ms=0,
+            last_error_code="",
+            discovered_tools=(),
+            last_checked_at=None,
+            updated_at=timestamp,
+        )
+        saved = self.repository.update(rotated)
+        self._audit("mcp_credentials_rotated", server_id=saved.id, tenant_id=tenant_id, actor_id=actor_id)
         return saved
 
     def delete_server(self, server_id: str, tenant_id: str, *, actor_id: str) -> None:

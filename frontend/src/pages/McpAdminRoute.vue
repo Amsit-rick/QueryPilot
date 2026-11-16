@@ -6,7 +6,7 @@ import McpAdminPage from '../components/McpAdminPage.vue'
 const {
   mcpServers, mcpDraft, mcpEditingId, mcpError, mcpLoading, mcpBusyId,
   mcpCallDraft, mcpCallResult, mcpCallBusy, loadMcpServers, editMcpServer,
-  cancelMcpEdit, saveMcpServer, patchMcpServer, checkMcpHealth, removeMcpServer,
+  cancelMcpEdit, saveMcpServer, patchMcpServer, rotateMcpCredentials, checkMcpHealth, removeMcpServer,
   selectMcpCallServer, invokeMcpTool, openView,
 } = inject(appContextKey)
 </script>
@@ -17,7 +17,7 @@ const {
     :loading="mcpLoading" :busy-id="mcpBusyId" :call-draft="mcpCallDraft"
     :call-result="mcpCallResult" :call-busy="mcpCallBusy"
     @refresh="loadMcpServers" @back="openView('query')" @save="saveMcpServer"
-    @edit="editMcpServer" @cancel="cancelMcpEdit" @patch="patchMcpServer"
+    @edit="editMcpServer" @cancel="cancelMcpEdit" @patch="patchMcpServer" @rotate-credentials="rotateMcpCredentials"
     @health="checkMcpHealth" @remove="removeMcpServer"
     @select-call-server="selectMcpCallServer" @invoke="invokeMcpTool"
   />

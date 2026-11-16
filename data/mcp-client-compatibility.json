@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-11-16T10:55:16.962577+00:00",
+  "sdk": {
+    "name": "mcp",
+    "version": "2.3.0"
+  },
+  "protocol_version": "2025-11-25",
+  "scope": "Local protocol-level verification. Product clients marked not_tested were not executed.",
+  "clients": [
+    {
+      "client": "official-python-sdk",
+      "client_version": "2.3.0",
+      "transport": "stdio",
+      "status": "verified",
+      "checks": {
+        "initialize": {
+          "status": "passed",
+          "detail": "negotiated protocol 2025-11-25"
+        },
+        "tools/list": {
+          "status": "passed",
+          "detail": "listed five governed read-only tools with non-destructive annotations"
+        },
+        "resources/templates/list": {
+          "status": "passed",
+          "detail": "listed the tenant-scoped Skill catalog template"
+        },
+        "resources/read": {
+          "status": "passed",
+          "detail": "read tenant-scoped Skill catalog JSON"
+        },
+        "tools/call": {
+          "status": "passed",
+          "detail": "called skill.route and received the deterministic receivables Skill"
+        },
+        "invalid_params": {
+          "status": "passed",
+          "detail": "invalid tool parameters returned stable code E_INTEGRATION_QUESTION"
+        },
+        "cancellation": {
+          "status": "passed",
+          "detail": "client request cancelled and transport context remained closable"
+        },
+        "authentication": {
+          "status": "passed",
+          "detail": "missing credentials returned stable code E_MCP_AUTH without exposing a secret"
+        }
+      },
+      "limitations": [
+        "验证客户端任务取消与进程清理；未使用真实长查询证明服务端业务处理已中断。"
+      ]
+    },
+    {
+      "client": "official-python-sdk",
+      "client_version": "2.3.0",
+      "transport": "streamable-http",
+      "status": "verified",
+      "checks": {
+        "initialize": {
+          "status": "passed",
+          "detail": "negotiated protocol 2025-11-25"
+        },
+        "tools/list": {
+          "status": "passed",
+          "detail": "listed five governed read-only tools with non-destructive annotations"
+        },
+        "resources/templates/list": {
+          "status": "passed",
+          "detail": "listed the tenant-scoped Skill catalog template"
+        },
+        "resources/read": {
+          "status": "passed",
+          "detail": "read tenant-scoped Skill catalog JSON"
+        },
+        "tools/call": {
+          "status": "passed",
+          "detail": "called skill.route and received the deterministic receivables Skill"
+        },
+        "invalid_params": {
+          "status": "passed",
+          "detail": "invalid tool parameters returned stable code E_INTEGRATION_QUESTION"
+        },
+        "cancellation": {
+          "status": "passed",
+          "detail": "client request cancelled and transport context remained closable"
+        },
+        "authentication": {
+          "status": "passed",
+          "detail": "missing credentials returned stable code E_MCP_AUTH without exposing a secret"
+        }
+      },
+      "limitations": [
+        "仅在本机回环 HTTP 验证；未覆盖 TLS、反向代理、mTLS、企业 OAuth 或网络分区。",
+        "验证客户端任务取消与传输关闭；未用真实长查询证明服务端业务处理已中断。"
+      ]
+    },
+    {
+      "client": "claude-code",
+      "client_version": null,
+      "transport": "stdio / streamable-http",
+      "status": "not_tested",
+      "checks": {},
+      "limitations": [
+        "未用固定版本 Claude Code 执行 Tools、Resource、错误码和取消全链路验收。"
+      ]
+    },
+    {
+      "client": "claude-desktop",
+      "client_version": null,
+      "transport": "stdio / streamable-http",
+      "status": "not_tested",
+      "checks": {},
+      "limitations": [
+        "本机未安装并执行固定版本的 Claude Desktop，不能声明兼容。"
+      ]
+    },
+    {
+      "client": "cursor",
+      "client_version": null,
+      "transport": "stdio / streamable-http",
+      "status": "not_tested",
+      "checks": {},
+      "limitations": [
+        "本机未使用固定版本 Cursor 完成连接、资源和取消验收。"
+      ]
+    },
+    {
+      "client": "codex",
+      "client_version": null,
+      "transport": "stdio / streamable-http",
+      "status": "not_tested",
+      "checks": {},
+      "limitations": [
+        "本轮未修改用户 Codex 配置，也未把当前 Codex App 会话当作协议验收证据。"
+      ]
+    }
+  ],
+  "summary": {
+    "verified": 2,
+    "limited": 0,
+    "failed": 0,
+    "not_tested": 4
+  }
+}

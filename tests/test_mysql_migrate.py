@@ -108,6 +108,21 @@ def test_proactive_analysis_migration_adds_plans_runs_and_due_indexes():
     assert "lease_token" in joined and "lease_expires_at" in joined
 
 
+def test_mcp_oauth_governance_migration_only_adds_references_and_metadata():
+    migration = Path(__file__).parents[1] / "migrations" / "mysql" / "V028__add_mcp_oauth_secret_governance.sql"
+    statements = mysql_migrate._statements(migration)
+    sql = "\n".join(statements).lower()
+
+    assert "auth_type" in sql
+    assert "oauth_token_url" in sql
+    assert "oauth_client_id" in sql
+    assert "oauth_scopes_json" in sql
+    assert "credential_version" in sql
+    assert "credential_rotated_at" in sql
+    assert "access_token" not in sql
+    assert "client_secret varchar" not in sql
+
+
 def test_dry_run_does_not_connect_to_mysql(tmp_path, monkeypatch, capsys):
     migrations = tmp_path / "mysql"
     migrations.mkdir()

@@ -4,7 +4,11 @@ const emptyServer = () => ({
   name: '',
   transport: 'streamable-http',
   endpoint: '',
+  auth_type: 'bearer',
   auth_env_ref: '',
+  oauth_token_url: '',
+  oauth_client_id: '',
+  oauth_scopes: '',
   allowed_tools: '',
   enabled: true,
   read_only_only: true,
@@ -80,7 +84,11 @@ export function useMcpServers(api, authFetch) {
       name: server.name,
       transport: server.transport,
       endpoint: server.endpoint,
+      auth_type: server.auth_type || 'bearer',
       auth_env_ref: server.auth_env_ref,
+      oauth_token_url: server.oauth_token_url || '',
+      oauth_client_id: server.oauth_client_id || '',
+      oauth_scopes: (server.oauth_scopes || []).join('\n'),
       allowed_tools: (server.allowed_tools || []).join('\n'),
       enabled: server.enabled,
       read_only_only: true,
@@ -104,11 +112,20 @@ export function useMcpServers(api, authFetch) {
       .map(item => item.trim())
       .filter(Boolean))]
     if (!allowedTools.length) throw new Error('请至少填写一个允许工具')
+    const oauthScopes = [...new Set(String(mcpDraft.value.oauth_scopes || '')
+      .split(/[\s,]+/)
+      .map(item => item.trim())
+      .filter(Boolean))]
+    const authType = mcpDraft.value.auth_type === 'oauth_client_credentials' ? 'oauth_client_credentials' : 'bearer'
     return {
       name: String(mcpDraft.value.name || '').trim(),
       transport: 'streamable-http',
       endpoint: String(mcpDraft.value.endpoint || '').trim(),
+      auth_type: authType,
       auth_env_ref: String(mcpDraft.value.auth_env_ref || '').trim(),
+      oauth_token_url: authType === 'oauth_client_credentials' ? String(mcpDraft.value.oauth_token_url || '').trim() : '',
+      oauth_client_id: authType === 'oauth_client_credentials' ? String(mcpDraft.value.oauth_client_id || '').trim() : '',
+      oauth_scopes: authType === 'oauth_client_credentials' ? oauthScopes : [],
       allowed_tools: allowedTools,
       enabled: Boolean(mcpDraft.value.enabled),
       read_only_only: true,
@@ -118,6 +135,35 @@ export function useMcpServers(api, authFetch) {
       daily_call_limit: Number(mcpDraft.value.daily_call_limit),
       circuit_failure_threshold: Number(mcpDraft.value.circuit_failure_threshold),
       circuit_reset_seconds: Number(mcpDraft.value.circuit_reset_seconds),
+    }
+  }
+
+  async function rotateMcpCredentials() {
+    if (!mcpEditingId.value) {
+      mcpError.value = '请先选择需要轮换凭据的 Server'
+      return
+    }
+    mcpError.value = ''
+    mcpBusyId.value = 'rotate-credentials'
+    try {
+      const payload = serverPayload()
+      await request(`/${encodeURIComponent(mcpEditingId.value)}/credentials/rotate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          auth_type: payload.auth_type,
+          auth_env_ref: payload.auth_env_ref,
+          oauth_token_url: payload.oauth_token_url,
+          oauth_client_id: payload.oauth_client_id,
+          oauth_scopes: payload.oauth_scopes,
+        }),
+      })
+      cancelMcpEdit()
+      await loadMcpServers()
+    } catch (error) {
+      mcpError.value = error.message
+    } finally {
+      mcpBusyId.value = ''
     }
   }
 
@@ -228,6 +274,6 @@ export function useMcpServers(api, authFetch) {
     mcpServers, mcpDraft, mcpEditingId, mcpError, mcpLoading, mcpBusyId,
     mcpCallDraft, mcpCallResult, mcpCallBusy, callableTools,
     loadMcpServers, editMcpServer, cancelMcpEdit, saveMcpServer, patchMcpServer,
-    checkMcpHealth, removeMcpServer, selectMcpCallServer, invokeMcpTool,
+    rotateMcpCredentials, checkMcpHealth, removeMcpServer, selectMcpCallServer, invokeMcpTool,
   }
 }

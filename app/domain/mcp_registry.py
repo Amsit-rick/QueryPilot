@@ -17,6 +17,12 @@ class McpServerRegistration:
     endpoint: str
     auth_env_ref: str
     allowed_tools: tuple[str, ...]
+    auth_type: str = "bearer"
+    oauth_token_url: str = ""
+    oauth_client_id: str = ""
+    oauth_scopes: tuple[str, ...] = ()
+    credential_version: int = 1
+    credential_rotated_at: datetime | None = None
     enabled: bool = True
     read_only_only: bool = True
     allow_private_network: bool = False

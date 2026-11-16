@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     mcp_max_sse_event_bytes: int = Field(default=1024 * 1024, ge=1024, le=10 * 1024 * 1024)
     mcp_max_discovered_tools: int = Field(default=200, ge=1, le=5000)
     mcp_max_tool_pages: int = Field(default=10, ge=1, le=100)
+    mcp_agent_enrichment_enabled: bool = False
+    mcp_agent_enrichment_max_tools: int = Field(default=2, ge=1, le=4)
+    mcp_agent_enrichment_max_result_bytes: int = Field(default=32 * 1024, ge=1024, le=1024 * 1024)
+    mcp_agent_enrichment_max_depth: int = Field(default=8, ge=1, le=32)
+    mcp_agent_enrichment_max_fields: int = Field(default=256, ge=1, le=5000)
+    mcp_agent_enrichment_max_text_chars: int = Field(default=2000, ge=64, le=20000)
+    mcp_agent_enrichment_max_question_chars: int = Field(default=512, ge=64, le=4000)
     sql_cache_ttl_seconds: int = 300
     sql_cache_max_entries: int = 512
     max_sql_length: int = 5000

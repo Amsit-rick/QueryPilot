@@ -15,7 +15,7 @@ const props = defineProps({
 
 const emit = defineEmits([
   'refresh', 'back', 'save', 'edit', 'cancel', 'patch', 'health', 'remove',
-  'select-call-server', 'invoke',
+  'rotate-credentials', 'select-call-server', 'invoke',
 ])
 
 const healthLabels = {
@@ -63,7 +63,13 @@ function resultPreview(value) {
           <label>名称<input v-model="draft.name" maxlength="120" required placeholder="例如 Finance MCP"></label>
           <label>传输协议<input value="streamable-http" disabled></label>
           <label class="wide">Endpoint<input v-model="draft.endpoint" maxlength="500" type="url" required placeholder="https://mcp.example.com/mcp"></label>
-          <label class="wide">凭据环境变量<input v-model="draft.auth_env_ref" maxlength="128" pattern="[A-Z][A-Z0-9_]+" required placeholder="FINANCE_MCP_TOKEN"><small>只保存变量名，不填写 Token 或 API Key。</small></label>
+          <label>认证方式<select v-model="draft.auth_type"><option value="bearer">Bearer 引用</option><option value="oauth_client_credentials">OAuth Client Credentials</option></select></label>
+          <label class="wide">Secret 引用<input v-model="draft.auth_env_ref" maxlength="134" pattern="(env://)?[A-Z][A-Z0-9_]+" required placeholder="env://FINANCE_MCP_SECRET"><small>数据库只保存引用，不填写 Token 或 Client Secret。</small></label>
+          <template v-if="draft.auth_type==='oauth_client_credentials'">
+            <label class="wide">OAuth Token URL<input v-model="draft.oauth_token_url" maxlength="500" type="url" required placeholder="https://identity.example.com/oauth/token"></label>
+            <label>OAuth Client ID<input v-model="draft.oauth_client_id" maxlength="200" required placeholder="query-pilot"></label>
+            <label class="wide">OAuth Scopes<textarea v-model="draft.oauth_scopes" rows="3" placeholder="mcp.read&#10;catalog.read"></textarea><small>使用空格、逗号或换行分隔，最多 20 项。</small></label>
+          </template>
           <label class="wide">允许工具<textarea v-model="draft.allowed_tools" rows="4" required placeholder="schema.list&#10;report.read"></textarea><small>每行一个精确工具名，禁止通配符。</small></label>
           <label>请求超时（秒）<input v-model.number="draft.request_timeout_seconds" type="number" min="1" max="120" required></label>
           <label>最大并发<input v-model.number="draft.max_concurrency" type="number" min="1" max="32" required></label>
@@ -73,7 +79,7 @@ function resultPreview(value) {
           <label class="check"><input v-model="draft.enabled" type="checkbox">启用 Server</label>
           <label class="check"><input v-model="draft.allow_private_network" type="checkbox">允许访问私网目标</label>
           <p v-if="draft.allow_private_network" class="mcp-policy-warning">允许私网会扩大 SSRF 风险；云平台 Metadata 和基础设施地址仍会被拒绝。</p>
-          <button class="run" type="submit" :disabled="Boolean(busyId)">{{busyId==='save'?'保存中…':editingId?'保存修改':'注册 Server'}}</button>
+          <div class="provider-actions wide"><button class="run" type="submit" :disabled="Boolean(busyId)">{{busyId==='save'?'保存中…':editingId?'保存修改':'注册 Server'}}</button><button v-if="editingId" class="ghost" type="button" :disabled="Boolean(busyId)" @click="emit('rotate-credentials')">{{busyId==='rotate-credentials'?'轮换中…':'轮换凭据引用'}}</button></div>
         </form>
       </section>
 
@@ -86,7 +92,8 @@ function resultPreview(value) {
             <div class="mcp-server-main">
               <div class="mcp-server-title"><strong>{{server.name}}</strong><span class="health-state" :class="server.enabled?server.health_status:'disabled'">{{healthLabels[server.enabled?server.health_status:'disabled']||server.health_status}}</span><span v-if="server.credential_configured" class="model-badge">凭据已注入</span></div>
               <code>{{server.endpoint}}</code>
-              <small>{{server.auth_env_ref}} · {{server.transport}} · 并发 {{server.max_concurrency}} · 每日 {{server.daily_call_limit}}</small>
+              <small>{{server.auth_type==='oauth_client_credentials'?'OAuth Client Credentials':'Bearer'}} · {{server.auth_env_ref}} · 凭据版本 {{server.credential_version}} · 并发 {{server.max_concurrency}} · 每日 {{server.daily_call_limit}}</small>
+              <small v-if="server.auth_type==='oauth_client_credentials'">{{server.oauth_token_url}} · {{server.oauth_client_id}}<template v-if="server.oauth_scopes?.length"> · {{server.oauth_scopes.join(' ')}}</template></small>
               <small v-if="server.last_checked_at">最近检查 {{fmtTime(server.last_checked_at)}} · {{server.last_latency_ms}} ms<template v-if="server.last_error_code"> · {{server.last_error_code}}</template></small>
               <div class="mcp-tool-groups">
                 <div><span>允许</span><i v-for="tool in server.allowed_tools" :key="`a-${tool}`">{{tool}}</i></div>

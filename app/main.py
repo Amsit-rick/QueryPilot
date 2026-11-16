@@ -58,6 +58,8 @@ from .api.model_operations_routes import router as model_operations_router
 from .api.integration_routes import router as integration_router
 from .api.skill_routes import router as skill_router
 from .skill_runtime import get_skill_service
+from .mcp_agent_enrichment_runtime import get_mcp_agent_enrichment_service
+from .skill_workflow_runtime import get_executable_skill_workflow_service
 from .api.mcp_registry_routes import router as mcp_registry_router
 from .api.reflection_rollout_routes import router as reflection_rollout_router
 from .api.quality_admin_routes import router as quality_admin_router
@@ -100,6 +102,8 @@ def get_query_application_service() -> QueryApplicationService:
             describe_result=describe_result,
             get_skill_service=get_skill_service,
             get_user_grants=get_user_grants,
+            get_mcp_agent_enrichment_service=get_mcp_agent_enrichment_service,
+            get_executable_skill_workflow_service=get_executable_skill_workflow_service,
         )
     )
 

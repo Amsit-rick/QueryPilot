@@ -95,3 +95,75 @@ def test_registry_rejects_duplicate_names_per_tenant_only():
         )
     service.create_server(tenant_id="tenant-b", actor_id="admin", **server_payload())
 
+
+def test_registry_validates_oauth_client_credentials_contract():
+    service = McpRegistryService(InMemoryMcpRegistryRepository())
+    created = service.create_server(
+        tenant_id="tenant-a",
+        actor_id="admin",
+        **server_payload(
+            auth_type="oauth_client_credentials",
+            auth_env_ref="env://FINANCE_MCP_CLIENT_SECRET",
+            oauth_token_url="https://identity.example.com/oauth/token",
+            oauth_client_id="query-pilot",
+            oauth_scopes=["mcp.read", "catalog.read", "mcp.read"],
+        ),
+    )
+
+    assert created.auth_type == "oauth_client_credentials"
+    assert created.oauth_scopes == ("mcp.read", "catalog.read")
+    assert created.credential_version == 1
+
+    invalid = (
+        server_payload(name="OAuth missing URL", auth_type="oauth_client_credentials"),
+        server_payload(name="OAuth HTTP", auth_type="oauth_client_credentials", oauth_token_url="http://identity.example.com/token", oauth_client_id="client"),
+        server_payload(name="Bearer with OAuth", oauth_token_url="https://identity.example.com/token", oauth_client_id="client"),
+        server_payload(name="Bad scope", auth_type="oauth_client_credentials", oauth_token_url="https://identity.example.com/token", oauth_client_id="client", oauth_scopes=["bad scope!"]),
+    )
+    for candidate in invalid:
+        with pytest.raises(ValueError, match="E_MCP_OAUTH"):
+            service.create_server(tenant_id="tenant-a", actor_id="admin", **candidate)
+
+
+def test_credential_rotation_increments_version_resets_health_and_is_tenant_scoped(tmp_path, monkeypatch):
+    audit_path = tmp_path / "audit.jsonl"
+    monkeypatch.setattr(settings, "audit_log_path", str(audit_path))
+    service = McpRegistryService(InMemoryMcpRegistryRepository())
+    created = service.create_server(tenant_id="tenant-a", actor_id="admin", **server_payload())
+    checked = service.record_runtime_status(created.id, "tenant-a", status="healthy", discovered_tools=("report.read",))
+
+    rotated = service.rotate_credentials(
+        checked.id,
+        "tenant-a",
+        {"auth_env_ref": "env://FINANCE_MCP_TOKEN_V2"},
+        actor_id="admin",
+    )
+
+    assert rotated.auth_env_ref == "env://FINANCE_MCP_TOKEN_V2"
+    assert rotated.credential_version == 2
+    assert rotated.credential_rotated_at is not None
+    assert rotated.health_status == "unchecked"
+    assert rotated.discovered_tools == ()
+    with pytest.raises(LookupError):
+        service.rotate_credentials(created.id, "tenant-b", {"auth_env_ref": "env://OTHER"}, actor_id="admin-b")
+    audit_text = audit_path.read_text(encoding="utf-8")
+    assert "mcp_credentials_rotated" in audit_text
+    assert "FINANCE_MCP_TOKEN_V2" not in audit_text
+
+
+def test_regular_update_cannot_bypass_credential_rotation_versioning():
+    service = McpRegistryService(InMemoryMcpRegistryRepository())
+    created = service.create_server(tenant_id="tenant-a", actor_id="admin", **server_payload())
+
+    with pytest.raises(ValueError, match="E_MCP_CREDENTIAL_ROTATION_REQUIRED"):
+        service.update_server(
+            created.id,
+            "tenant-a",
+            {"auth_env_ref": "env://FINANCE_MCP_TOKEN_V2"},
+            actor_id="admin",
+        )
+
+    current = service.get_server(created.id, "tenant-a")
+    assert current.auth_env_ref == "FINANCE_MCP_TOKEN"
+    assert current.credential_version == 1
+

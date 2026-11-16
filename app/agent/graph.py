@@ -13,11 +13,12 @@ import inspect
 from .reflection import AgentTerminalError, ReflectionAction, ReflectionPolicy, ReflectionResult, build_reflection_prompt, error_code_from_exception, public_error_message, restore_reflection_budget
 
 class QueryAgentGraph:
-    def __init__(self, *, generate: Callable, validate: Callable, execute: Callable, resolve_semantics: Callable | None = None, plan: Callable | None = None, verify: Callable | None = None, analyze: Callable | None = None, explain: Callable | None = None, materialize: Callable | None = None, pre_execute: Callable | None = None, max_repairs: int = 2, checkpoint: Callable[[dict[str, Any]], None] | None = None, reflection_policy: ReflectionPolicy | None = None, max_schema_expansions: int = 1, max_execution_retries: int = 1, max_reflection_steps: int = 12):
+    def __init__(self, *, generate: Callable, validate: Callable, execute: Callable, resolve_semantics: Callable | None = None, prepare_skill_workflow: Callable | None = None, plan: Callable | None = None, verify: Callable | None = None, analyze: Callable | None = None, explain: Callable | None = None, materialize: Callable | None = None, pre_execute: Callable | None = None, max_repairs: int = 2, checkpoint: Callable[[dict[str, Any]], None] | None = None, reflection_policy: ReflectionPolicy | None = None, max_schema_expansions: int = 1, max_execution_retries: int = 1, max_reflection_steps: int = 12):
         self.generate = generate
         self.validate = validate
         self.execute = execute
         self.resolve_semantics = resolve_semantics or (lambda _: {})
+        self.prepare_skill_workflow = prepare_skill_workflow
         self.plan = plan or (lambda question, _: AnalysisPlan(objective=question))
         self.verify = verify or (lambda _: VerificationResult(accepted=True))
         self.analyze = analyze
@@ -55,6 +56,24 @@ class QueryAgentGraph:
         state.status = "resolving_semantics"
         state.semantic_context = self.resolve_semantics(state.question)
         self._checkpoint(state)
+        if self.prepare_skill_workflow:
+            state.status = "preparing_skill_workflow"
+            workflow = self.prepare_skill_workflow(
+                state.question,
+                state.semantic_context,
+                provided_sql,
+            )
+            if inspect.isawaitable(workflow):
+                workflow = await workflow
+            state.skill_workflow = dict(workflow or {})
+            workflow_status = state.skill_workflow.get("status")
+            if workflow_status in {"clarification_required", "failed"}:
+                state.status = workflow_status
+                state.error_code = str(state.skill_workflow.get("error_code") or "E_SKILL_WORKFLOW")
+                state.error = str(state.skill_workflow.get("message") or "Skill 工作流预检失败")
+                self._checkpoint(state)
+                raise AgentTerminalError(state.error_code, state.error, status=state.status)
+            self._checkpoint(state)
         state.status = "planning"
         state.analysis_plan = parse_analysis_plan(self.plan(state.question, state.semantic_context)).model_dump()
         self._checkpoint(state)

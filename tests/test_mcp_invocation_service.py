@@ -1,5 +1,6 @@
 import asyncio
 import json
+from contextlib import asynccontextmanager
 
 import pytest
 
@@ -117,6 +118,46 @@ def test_health_and_invoke_use_allowlist_readonly_annotation_and_sanitized_audit
     assert called["tool_replay_policy_version"] == "tool-replay-v1"
     assert "secret-token" not in audit_text
     assert "华东" not in audit_text
+
+
+def test_health_probe_uses_dedicated_singleflight_governance_key(tmp_path, monkeypatch):
+    class RecordingGuard:
+        def __init__(self):
+            self.reservations = []
+
+        @asynccontextmanager
+        async def reserve(self, **kwargs):
+            self.reservations.append(kwargs)
+            yield
+
+        async def record_success(self, _key):
+            return None
+
+        async def record_failure(self, _key, **_kwargs):
+            return None
+
+    monkeypatch.setattr(settings, "audit_log_path", str(tmp_path / "audit.jsonl"))
+    registry = McpRegistryService(InMemoryMcpRegistryRepository())
+    guard = RecordingGuard()
+    service = McpInvocationService(
+        registry,
+        transport=FakeTransport([readonly_tool("report.read")]),
+        guard=guard,
+        resolver=lambda _hostname: ["8.8.8.8"],
+        environ={"FINANCE_MCP_TOKEN": "secret-token"},
+    )
+    server = registry.create_server(
+        tenant_id="tenant-a",
+        actor_id="admin",
+        **server_payload(allowed_tools=["report.read"]),
+    )
+
+    checked = run(service.check_health(server.id, "tenant-a", actor_id="admin"))
+
+    assert checked.health_status == "healthy"
+    assert guard.reservations[0]["key"] == f"tenant-a:{server.id}:health"
+    assert guard.reservations[0]["max_concurrency"] == 1
+    assert guard.reservations[0]["consume_budget"] is False
 
 
 def test_readonly_but_non_idempotent_mcp_tool_is_never_marked_safe(tmp_path, monkeypatch):
